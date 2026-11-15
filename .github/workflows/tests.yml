@@ -1,0 +1,42 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  e2e:
+    name: End-to-end (all scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Shared module is in sync across the three skills
+        run: |
+          cmp schema-memory/scripts/_dbmod.py legacy-assessment/scripts/_dbmod.py
+          cmp schema-memory/scripts/_dbmod.py domain-modernization/scripts/_dbmod.py
+
+      - name: Run end-to-end test
+        run: bash tests/run_e2e.sh
+
+  postgres:
+    name: Live PostgreSQL (migrations + data migration)
+    runs-on: ubuntu-latest
+    needs: e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Note: the test intentionally shows one failed load (dirty legacy data caught by
+      # the precheck), records the decision, then loads successfully.
+      - name: Run PostgreSQL test
+        run: bash tests/run_pg_test.sh

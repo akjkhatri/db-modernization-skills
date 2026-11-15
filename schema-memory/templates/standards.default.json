@@ -1,0 +1,80 @@
+{
+  "_about": "Target-schema design standards enforced by domain-modernization/scripts/model_lint.py. Copied into .dbmod/standards.json at init; edit that copy, record why in an ADR.",
+  "version": "1.0",
+  "engine": "postgresql",
+  "engine_min_version": "15",
+  "naming": {
+    "case": "snake_case",
+    "max_identifier_length": 63,
+    "table_names": "singular",
+    "schema_per_context": true,
+    "schema_name_pattern": "^[a-z][a-z0-9_]{1,30}$",
+    "forbidden_prefixes": ["tbl_", "t_", "tb_", "vw_", "sp_", "fn_"],
+    "abbreviations_allowed": ["id", "uuid", "url", "iso", "vat", "iban", "bic", "sku", "api", "ip"],
+    "primary_key_column": "{table}_id",
+    "foreign_key_column": "{referenced_table}_id",
+    "constraint_names": {
+      "primary_key": "pk_{table}",
+      "foreign_key": "fk_{table}__{ref_table}",
+      "unique": "uq_{table}__{columns}",
+      "check": "ck_{table}__{name}",
+      "index": "ix_{table}__{columns}"
+    }
+  },
+  "keys": {
+    "primary_key_type": "bigint",
+    "primary_key_generation": "identity",
+    "public_identifier": "Expose a separate uuid column (public_id uuid default gen_random_uuid()) when the entity is referenced outside its context or via APIs.",
+    "cross_context_references": "id-only",
+    "cross_schema_foreign_keys_allowed": false
+  },
+  "types": {
+    "timestamps": "timestamp with time zone",
+    "money": "numeric(19,4)",
+    "currency_code": "character(3)",
+    "boolean": "boolean",
+    "free_text": "text",
+    "bounded_text": "character varying(n) only when a real business limit exists; otherwise text plus a check constraint",
+    "forbidden": ["money", "real", "double precision (for monetary values)", "timestamp without time zone", "json", "char(n) for non-fixed-width codes", "serial", "bigserial"],
+    "enums": "Prefer a lookup table (code PK + label + is_active) for business-managed lists; PostgreSQL enum types only for small, stable, code-owned state machines.",
+    "jsonb": "Allowed for genuinely schemaless, non-queried payloads (e.g. external API snapshots). Not a substitute for modelling."
+  },
+  "audit_columns": {
+    "required": true,
+    "columns": [
+      {"name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()"},
+      {"name": "created_by", "type": "text", "nullable": false},
+      {"name": "updated_at", "type": "timestamp with time zone", "nullable": false, "default": "now()"},
+      {"name": "updated_by", "type": "text", "nullable": false}
+    ],
+    "exempt_roles": ["lookup", "link"]
+  },
+  "optimistic_locking": {"required_for_roles": ["root"], "column": {"name": "row_version", "type": "integer", "nullable": false, "default": "1"}},
+  "soft_delete": {
+    "policy": "Only where a requirement or retention rule needs it. Use deleted_at timestamptz NULL, never a boolean flag.",
+    "column": {"name": "deleted_at", "type": "timestamp with time zone", "nullable": true}
+  },
+  "constraints": {
+    "index_foreign_keys": true,
+    "not_null_by_default": true,
+    "check_constraints_for_codes": true
+  },
+  "gdpr": {
+    "require_pii_classification": true,
+    "classes": ["none", "personal", "special_category", "financial", "credential"],
+    "retention_note_required_for": ["personal", "special_category", "financial"],
+    "comment_tag": "[PII:{class}]"
+  },
+  "documentation": {"table_comment_required": true, "column_comment_required_for_pii": true},
+  "flyway": {
+    "location": "db/migration",
+    "version_format": "V{timestamp}__{context}_{description}.sql",
+    "one_context_per_migration": true,
+    "never_edit_applied_migrations": true
+  },
+  "data_migration": {
+    "location": "db/data-migration",
+    "legacy_access": "postgres_fdw foreign schema named legacy_src in the migration database",
+    "id_mapping_schema": "migration_map"
+  }
+}

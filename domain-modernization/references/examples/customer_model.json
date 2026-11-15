@@ -1,0 +1,19 @@
+{"context":"customer","schema":"customer","description":"Customer master data: identity of buying parties and their contact points.","version":1,"status":"draft","accepted_version":null,
+ "legacy_domains":["customer"],"requirements":["REQ-0001"],
+ "tables":[
+  {"name":"customer","role":"root","aggregate":"Customer","description":"A buying party (retail or wholesale).","retention":"6 years after last order (UK tax), then anonymise",
+   "columns":[
+    {"name":"customer_id","type":"bigint","identity":true,"nullable":false,"pii":"none","description":"surrogate key"},
+    {"name":"public_id","type":"uuid","nullable":false,"default":"gen_random_uuid()","pii":"none","description":"external identifier"},
+    {"name":"customer_number","type":"text","nullable":false,"pii":"none","description":"legacy cust_id kept as business number"},
+    {"name":"display_name","type":"text","nullable":false,"pii":"personal","description":"customer name"},
+    {"name":"customer_type","type":"customer_type","nullable":false,"pii":"none","description":"retail or wholesale"},
+    {"name":"email_address","type":"text","nullable":true,"pii":"personal","description":"primary email"},
+    {"name":"credit_limit_amount","type":"numeric(19,4)","nullable":false,"default":"0","pii":"financial","description":"credit limit in GBP"},
+    {"name":"created_at","type":"timestamp with time zone","nullable":false,"default":"now()","pii":"none","description":"audit"},
+    {"name":"created_by","type":"text","nullable":false,"pii":"none","description":"audit"},
+    {"name":"updated_at","type":"timestamp with time zone","nullable":false,"default":"now()","pii":"none","description":"audit"},
+    {"name":"updated_by","type":"text","nullable":false,"pii":"none","description":"audit"},
+    {"name":"row_version","type":"integer","nullable":false,"default":"1","pii":"none","description":"optimistic lock"}],
+   "primary_key":["customer_id"],"unique":[{"columns":["customer_number"]},{"columns":["public_id"]}],"checks":[],"foreign_keys":[],"indexes":[]}],
+ "enums":[{"name":"customer_type","values":["retail","wholesale"]}],"external_refs":[]}

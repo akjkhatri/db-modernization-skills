@@ -1,0 +1,467 @@
+{
+ "context": "billing",
+ "schema": "billing",
+ "description": "Invoicing, payments and credit notes.",
+ "version": 1,
+ "status": "draft",
+ "accepted_version": null,
+ "legacy_domains": [
+  "invoice"
+ ],
+ "requirements": [
+  "REQ-0002"
+ ],
+ "tables": [
+  {
+   "name": "invoice",
+   "role": "root",
+   "aggregate": "Invoice",
+   "description": "Invoice issued to a customer for an order.",
+   "retention": "6 years (HMRC)",
+   "columns": [
+    {
+     "name": "invoice_id",
+     "type": "bigint",
+     "identity": true,
+     "nullable": false,
+     "pii": "none",
+     "description": "surrogate key"
+    },
+    {
+     "name": "invoice_number",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "legal invoice number"
+    },
+    {
+     "name": "customer_id",
+     "type": "bigint",
+     "nullable": false,
+     "pii": "none",
+     "description": "customer context id"
+    },
+    {
+     "name": "order_number",
+     "type": "text",
+     "nullable": true,
+     "pii": "none",
+     "description": "originating sales order number"
+    },
+    {
+     "name": "issue_date",
+     "type": "date",
+     "nullable": false,
+     "pii": "none",
+     "description": "tax point"
+    },
+    {
+     "name": "due_date",
+     "type": "date",
+     "nullable": false,
+     "pii": "none",
+     "description": "payment due"
+    },
+    {
+     "name": "currency_code",
+     "type": "character(3)",
+     "nullable": false,
+     "default": "'GBP'",
+     "pii": "none",
+     "description": "ISO 4217"
+    },
+    {
+     "name": "net_amount",
+     "type": "numeric(19,4)",
+     "nullable": false,
+     "pii": "none",
+     "description": "net total"
+    },
+    {
+     "name": "vat_amount",
+     "type": "numeric(19,4)",
+     "nullable": false,
+     "pii": "none",
+     "description": "VAT total"
+    },
+    {
+     "name": "status",
+     "type": "invoice_status",
+     "nullable": false,
+     "pii": "none",
+     "description": "lifecycle state"
+    },
+    {
+     "name": "created_at",
+     "type": "timestamp with time zone",
+     "nullable": false,
+     "default": "now()",
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "created_by",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "updated_at",
+     "type": "timestamp with time zone",
+     "nullable": false,
+     "default": "now()",
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "updated_by",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "row_version",
+     "type": "integer",
+     "nullable": false,
+     "default": "1",
+     "pii": "none",
+     "description": "optimistic lock"
+    }
+   ],
+   "primary_key": [
+    "invoice_id"
+   ],
+   "unique": [
+    {
+     "columns": [
+      "invoice_number"
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "name": "due_after_issue",
+     "expression": "due_date >= issue_date"
+    },
+    {
+     "name": "amounts_non_negative",
+     "expression": "net_amount >= 0 AND vat_amount >= 0"
+    }
+   ],
+   "foreign_keys": [],
+   "indexes": [
+    {
+     "columns": [
+      "customer_id"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "invoice_line",
+   "role": "entity",
+   "aggregate": "Invoice",
+   "description": "Line of an invoice.",
+   "columns": [
+    {
+     "name": "invoice_line_id",
+     "type": "bigint",
+     "identity": true,
+     "nullable": false,
+     "pii": "none",
+     "description": "surrogate key"
+    },
+    {
+     "name": "invoice_id",
+     "type": "bigint",
+     "nullable": false,
+     "pii": "none",
+     "description": "parent invoice"
+    },
+    {
+     "name": "line_number",
+     "type": "integer",
+     "nullable": false,
+     "pii": "none",
+     "description": "position"
+    },
+    {
+     "name": "description",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "line text"
+    },
+    {
+     "name": "line_amount",
+     "type": "numeric(19,4)",
+     "nullable": false,
+     "pii": "none",
+     "description": "net amount"
+    },
+    {
+     "name": "created_at",
+     "type": "timestamp with time zone",
+     "nullable": false,
+     "default": "now()",
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "created_by",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "updated_at",
+     "type": "timestamp with time zone",
+     "nullable": false,
+     "default": "now()",
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "updated_by",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "audit"
+    }
+   ],
+   "primary_key": [
+    "invoice_line_id"
+   ],
+   "unique": [
+    {
+     "columns": [
+      "invoice_id",
+      "line_number"
+     ]
+    }
+   ],
+   "checks": [],
+   "foreign_keys": [
+    {
+     "columns": [
+      "invoice_id"
+     ],
+     "references": {
+      "table": "invoice",
+      "columns": [
+       "invoice_id"
+      ]
+     },
+     "on_delete": "cascade"
+    }
+   ],
+   "indexes": []
+  },
+  {
+   "name": "payment_method",
+   "role": "lookup",
+   "description": "Accepted payment methods.",
+   "columns": [
+    {
+     "name": "code",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "method code"
+    },
+    {
+     "name": "label",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "display label"
+    },
+    {
+     "name": "is_active",
+     "type": "boolean",
+     "nullable": false,
+     "default": "true",
+     "pii": "none",
+     "description": "selectable"
+    }
+   ],
+   "primary_key": [
+    "code"
+   ],
+   "unique": [],
+   "checks": [],
+   "foreign_keys": [],
+   "indexes": [],
+   "seed": [
+    {
+     "code": "card",
+     "label": "Card",
+     "is_active": true
+    },
+    {
+     "code": "bank_transfer",
+     "label": "Bank transfer",
+     "is_active": true
+    },
+    {
+     "code": "cheque",
+     "label": "Cheque",
+     "is_active": false
+    },
+    {
+     "code": "other",
+     "label": "Other / unknown legacy",
+     "is_active": false
+    }
+   ]
+  },
+  {
+   "name": "payment",
+   "role": "root",
+   "aggregate": "Payment",
+   "description": "Money received against an invoice.",
+   "retention": "6 years (HMRC)",
+   "columns": [
+    {
+     "name": "payment_id",
+     "type": "bigint",
+     "identity": true,
+     "nullable": false,
+     "pii": "none",
+     "description": "surrogate key"
+    },
+    {
+     "name": "invoice_id",
+     "type": "bigint",
+     "nullable": false,
+     "pii": "none",
+     "description": "invoice paid"
+    },
+    {
+     "name": "received_at",
+     "type": "timestamp with time zone",
+     "nullable": false,
+     "pii": "none",
+     "description": "when received"
+    },
+    {
+     "name": "amount",
+     "type": "numeric(19,4)",
+     "nullable": false,
+     "pii": "none",
+     "description": "amount received"
+    },
+    {
+     "name": "payment_method_code",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "how paid"
+    },
+    {
+     "name": "provider_token",
+     "type": "text",
+     "nullable": true,
+     "pii": "financial",
+     "description": "PSP token; raw card/bank data never stored"
+    },
+    {
+     "name": "created_at",
+     "type": "timestamp with time zone",
+     "nullable": false,
+     "default": "now()",
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "created_by",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "updated_at",
+     "type": "timestamp with time zone",
+     "nullable": false,
+     "default": "now()",
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "updated_by",
+     "type": "text",
+     "nullable": false,
+     "pii": "none",
+     "description": "audit"
+    },
+    {
+     "name": "row_version",
+     "type": "integer",
+     "nullable": false,
+     "default": "1",
+     "pii": "none",
+     "description": "optimistic lock"
+    }
+   ],
+   "primary_key": [
+    "payment_id"
+   ],
+   "unique": [],
+   "checks": [
+    {
+     "name": "amount_positive",
+     "expression": "amount > 0"
+    }
+   ],
+   "foreign_keys": [
+    {
+     "columns": [
+      "invoice_id"
+     ],
+     "references": {
+      "table": "invoice",
+      "columns": [
+       "invoice_id"
+      ]
+     },
+     "on_delete": "restrict"
+    },
+    {
+     "columns": [
+      "payment_method_code"
+     ],
+     "references": {
+      "table": "payment_method",
+      "columns": [
+       "code"
+      ]
+     },
+     "on_delete": "restrict"
+    }
+   ],
+   "indexes": []
+  }
+ ],
+ "enums": [
+  {
+   "name": "invoice_status",
+   "values": [
+    "issued",
+    "paid",
+    "cancelled"
+   ]
+  }
+ ],
+ "external_refs": [
+  {
+   "column": "invoice.customer_id",
+   "context": "customer",
+   "entity": "customer",
+   "mode": "id"
+  }
+ ]
+}

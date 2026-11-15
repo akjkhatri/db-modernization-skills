@@ -1,0 +1,266 @@
+<html><body><h1>Schema: public</h1>
+<h2>Table: public.cust_mst</h2>
+<p>Customer master</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>cust_id</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>cust_nm</td><td>varchar(100)</td><td>&#10003;</td><td></td><td></td><td>customer name</td></tr>
+<tr><td>3</td><td>cust_type</td><td>char(1)</td><td></td><td></td><td></td><td>R=retail W=wholesale</td></tr>
+<tr><td>4</td><td>email_addr</td><td>varchar(200)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>phone1</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>6</td><td>phone2</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>7</td><td>phone3</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>8</td><td>addr1</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>9</td><td>addr2</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>10</td><td>addr3</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>11</td><td>city</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>12</td><td>post_cd</td><td>varchar(10)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>13</td><td>country_cd</td><td>char(2)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>14</td><td>region_cd</td><td>char(3)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>15</td><td>dob</td><td>varchar(10)</td><td></td><td></td><td></td><td>dd/mm/yyyy</td></tr>
+<tr><td>16</td><td>nino</td><td>varchar(9)</td><td></td><td></td><td></td><td>national insurance no</td></tr>
+<tr><td>17</td><td>credit_lmt</td><td>double precision</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>18</td><td>status</td><td>char(1)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>19</td><td>crt_dt</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>20</td><td>upd_dt</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>21</td><td>upd_usr</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>22</td><td>del_flg</td><td>char(1)</td><td></td><td>&#x27;N&#x27;</td><td></td><td></td></tr>
+</table>
+<h2>Table: public.cust_contact</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>contact_id</td><td>integer</td><td>&#10003;</td><td>nextval(&#x27;cust_contact_contact_id_seq&#x27;::regclass)</td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>cust_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>contact_name</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>email</td><td>varchar(200)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>phone</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>6</td><td>is_primary</td><td>smallint</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.cust_notes</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>note_id</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>cust_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>note_txt</td><td>text</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>created</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.cust_mst_bak</h2>
+<p>backup before 2017 migration</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>cust_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>2</td><td>cust_nm</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>email_addr</td><td>varchar(200)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>status</td><td>char(1)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.region</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>region_cd</td><td>char(3)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>region_desc</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.ord_hdr</h2>
+<p>Sales order header</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>ord_no</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>cust_id</td><td>integer</td><td>&#10003;</td><td></td><td>FK &rarr; cust_mst.cust_id</td><td></td></tr>
+<tr><td>3</td><td>ord_dt</td><td>varchar(8)</td><td></td><td></td><td></td><td>yyyymmdd</td></tr>
+<tr><td>4</td><td>ord_status</td><td>varchar(2)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>ship_addr1</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>6</td><td>ship_addr2</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>7</td><td>ship_city</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>8</td><td>ship_post_cd</td><td>varchar(10)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>9</td><td>total_amt</td><td>money</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>10</td><td>disc_pct</td><td>real</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>11</td><td>cust_nm</td><td>varchar(100)</td><td></td><td></td><td></td><td>copied from cust_mst at order time</td></tr>
+<tr><td>12</td><td>sales_rep_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>13</td><td>crt_dt</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.ord_dtl</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>ord_no</td><td>integer</td><td>&#10003;</td><td></td><td>PK<br>FK &rarr; ord_hdr.ord_no</td><td></td></tr>
+<tr><td>2</td><td>line_no</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>3</td><td>prod_cd</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>qty</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>unit_price</td><td>numeric(10,2)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>6</td><td>line_amt</td><td>numeric(12,2)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.ord_status_hist</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>ord_no</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>2</td><td>status</td><td>varchar(2)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>chg_dt</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>chg_by</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.tmp_ord_import</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>col1</td><td>text</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>2</td><td>col2</td><td>text</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>col3</td><td>text</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>loaded</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.ord_hdr_2019</h2>
+<p>archive</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>ord_no</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>2</td><td>cust_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>ord_dt</td><td>varchar(8)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>total_amt</td><td>money</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.prod_mst</h2>
+<p>Products</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>prod_cd</td><td>varchar(20)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>prod_desc</td><td>varchar(200)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>cat_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>unit_price</td><td>numeric(10,2)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>uom</td><td>varchar(5)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>6</td><td>active_yn</td><td>char(1)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>7</td><td>attr1</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>8</td><td>attr2</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>9</td><td>attr3</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>10</td><td>attr4</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>11</td><td>attr5</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.prod_cat</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>cat_id</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>cat_name</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>parent_cat_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.prod_attr</h2>
+<p>extra product attributes</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>prod_cd</td><td>varchar(20)</td><td>&#10003;</td><td></td><td></td><td></td></tr>
+<tr><td>2</td><td>attr_name</td><td>varchar(50)</td><td>&#10003;</td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>attr_value</td><td>varchar(500)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.stock_lvl</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>prod_cd</td><td>varchar(20)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>whse_cd</td><td>varchar(5)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>3</td><td>qty_on_hand</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>last_cnt_dt</td><td>date</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.whse</h2>
+<p>Warehouses</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>whse_cd</td><td>varchar(5)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>whse_name</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>addr1</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>post_cd</td><td>varchar(10)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.inv_hdr</h2>
+<p>Invoice header</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>inv_no</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>ord_no</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>cust_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>inv_dt</td><td>date</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>due_dt</td><td>date</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>6</td><td>inv_amt</td><td>numeric(12,2)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>7</td><td>vat_amt</td><td>double precision</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>8</td><td>paid_flg</td><td>char(1)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>9</td><td>fax_no</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>10</td><td>currency</td><td>varchar(3)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.inv_dtl</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>inv_no</td><td>integer</td><td>&#10003;</td><td></td><td>PK<br>FK &rarr; inv_hdr.inv_no</td><td></td></tr>
+<tr><td>2</td><td>line_no</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>3</td><td>ord_no</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>description</td><td>varchar(200)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>amt</td><td>numeric(12,2)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.pymt</h2>
+<p>Payments</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>pymt_id</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>inv_no</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>pymt_dt</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>amt</td><td>money</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>pymt_method</td><td>varchar(10)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>6</td><td>card_no</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>7</td><td>bank_acct</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>8</td><td>sort_cd</td><td>varchar(8)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.credit_note</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>cn_id</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>inv_no</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>cust_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>amt</td><td>numeric(12,2)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>reason</td><td>varchar(200)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.emp</h2>
+<p>Employees</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>emp_id</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>first_nm</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>last_nm</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>email</td><td>varchar(200)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>salary</td><td>numeric(10,2)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>6</td><td>ni_number</td><td>varchar(9)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>7</td><td>mgr_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>8</td><td>dept_cd</td><td>varchar(5)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>9</td><td>hire_dt</td><td>date</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>10</td><td>ethnicity</td><td>varchar(30)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>11</td><td>health_notes</td><td>text</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.dept</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>dept_cd</td><td>varchar(5)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>dept_name</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.usr</h2>
+<p>Application users</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>usr_id</td><td>varchar(20)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>emp_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>pwd</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>last_login</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>role_cd</td><td>varchar(10)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.audit_log</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>log_id</td><td>bigint</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>tbl_name</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>rec_id</td><td>varchar(50)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>action</td><td>char(1)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>5</td><td>old_val</td><td>text</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>6</td><td>new_val</td><td>text</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>7</td><td>chg_dt</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>8</td><td>chg_usr</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.sys_param</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>param_key</td><td>varchar(50)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>param_val</td><td>varchar(500)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>descr</td><td>varchar(200)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.entity_link</h2>
+<p>documents attached to anything</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>link_id</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>entity_type</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>entity_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>doc_path</td><td>varchar(500)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.code_lkp</h2>
+<p>generic code lookup</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>code_type</td><td>varchar(20)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>code_val</td><td>varchar(10)</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>3</td><td>code_desc</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>Table: public.OrderExport</h2>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>ExportId</td><td>integer</td><td>&#10003;</td><td></td><td>PK</td><td></td></tr>
+<tr><td>2</td><td>OrderNo</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>exportedAt</td><td>timestamp</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>Target</td><td>varchar(20)</td><td></td><td></td><td></td><td></td></tr>
+</table>
+<h2>View: public.v_cust_orders</h2>
+<p>reporting view</p>
+<table border=1><tr><th>#</th><th>Column Name</th><th>Data Type</th><th>Not Null</th><th>Default</th><th>Constraints</th><th>Comment</th></tr>
+<tr><td>1</td><td>cust_id</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>2</td><td>cust_nm</td><td>varchar(100)</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>3</td><td>ord_no</td><td>integer</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>4</td><td>total_amt</td><td>money</td><td></td><td></td><td></td><td></td></tr>
+</table>
+</body></html>

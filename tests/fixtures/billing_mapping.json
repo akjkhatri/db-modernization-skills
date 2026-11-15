@@ -1,0 +1,222 @@
+{
+ "context": "billing",
+ "table_mappings": [
+  {
+   "target": "billing.invoice",
+   "sources": [
+    "public.inv_hdr"
+   ],
+   "grain": "one row per inv_hdr",
+   "legacy_key": [
+    "inv_no"
+   ]
+  },
+  {
+   "target": "billing.invoice_line",
+   "sources": [
+    "public.inv_dtl"
+   ],
+   "grain": "one row per inv_dtl",
+   "legacy_key": [
+    "inv_no",
+    "line_no"
+   ]
+  },
+  {
+   "target": "billing.payment_method",
+   "sources": [],
+   "notes": "reference data seeded by Flyway from model seed rows; legacy pymt_method codes translated in payment transform"
+  },
+  {
+   "target": "billing.payment",
+   "sources": [
+    "public.pymt"
+   ],
+   "grain": "one row per pymt",
+   "filter": "pymt.inv_no IS NOT NULL"
+  }
+ ],
+ "column_mappings": [
+  {
+   "target": "billing.invoice.invoice_number",
+   "sources": [
+    "public.inv_hdr.inv_no"
+   ],
+   "rule": "transform",
+   "transform": "'INV-' || lpad(inv_hdr.inv_no::text, 8, '0')",
+   "requirements": [
+    "REQ-0002"
+   ]
+  },
+  {
+   "target": "billing.invoice.customer_id",
+   "sources": [
+    "public.inv_hdr.cust_id"
+   ],
+   "rule": "lookup",
+   "lookup": "customer.customer"
+  },
+  {
+   "target": "billing.invoice.order_number",
+   "sources": [
+    "public.inv_hdr.ord_no"
+   ],
+   "rule": "transform",
+   "transform": "inv_hdr.ord_no::text"
+  },
+  {
+   "target": "billing.invoice.issue_date",
+   "sources": [
+    "public.inv_hdr.inv_dt"
+   ],
+   "rule": "direct"
+  },
+  {
+   "target": "billing.invoice.due_date",
+   "sources": [
+    "public.inv_hdr.due_dt",
+    "public.inv_hdr.inv_dt"
+   ],
+   "rule": "derived",
+   "transform": "coalesce(inv_hdr.due_dt, inv_hdr.inv_dt + 30)"
+  },
+  {
+   "target": "billing.invoice.currency_code",
+   "sources": [
+    "public.inv_hdr.currency"
+   ],
+   "rule": "transform",
+   "transform": "coalesce(upper(inv_hdr.currency),'GBP')"
+  },
+  {
+   "target": "billing.invoice.net_amount",
+   "sources": [
+    "public.inv_hdr.inv_amt"
+   ],
+   "rule": "direct"
+  },
+  {
+   "target": "billing.invoice.vat_amount",
+   "sources": [
+    "public.inv_hdr.vat_amt"
+   ],
+   "rule": "transform",
+   "transform": "round(coalesce(inv_hdr.vat_amt,0)::numeric, 4)"
+  },
+  {
+   "target": "billing.invoice.status",
+   "sources": [
+    "public.inv_hdr.paid_flg"
+   ],
+   "rule": "transform",
+   "transform": "(CASE WHEN inv_hdr.paid_flg = 'Y' THEN 'paid' ELSE 'issued' END)::billing.invoice_status"
+  },
+  {
+   "target": "billing.invoice_line.invoice_id",
+   "sources": [
+    "public.inv_dtl.inv_no"
+   ],
+   "rule": "lookup",
+   "lookup": "billing.invoice"
+  },
+  {
+   "target": "billing.invoice_line.line_number",
+   "sources": [
+    "public.inv_dtl.line_no"
+   ],
+   "rule": "direct"
+  },
+  {
+   "target": "billing.invoice_line.description",
+   "sources": [
+    "public.inv_dtl.description"
+   ],
+   "rule": "transform",
+   "transform": "coalesce(inv_dtl.description,'')"
+  },
+  {
+   "target": "billing.invoice_line.line_amount",
+   "sources": [
+    "public.inv_dtl.amt"
+   ],
+   "rule": "direct"
+  },
+  {
+   "target": "billing.payment_method.code",
+   "sources": [],
+   "rule": "new"
+  },
+  {
+   "target": "billing.payment_method.label",
+   "sources": [],
+   "rule": "new"
+  },
+  {
+   "target": "billing.payment.invoice_id",
+   "sources": [
+    "public.pymt.inv_no"
+   ],
+   "rule": "lookup",
+   "lookup": "billing.invoice"
+  },
+  {
+   "target": "billing.payment.received_at",
+   "sources": [
+    "public.pymt.pymt_dt"
+   ],
+   "rule": "transform",
+   "transform": "pymt.pymt_dt AT TIME ZONE 'Europe/London'"
+  },
+  {
+   "target": "billing.payment.amount",
+   "sources": [
+    "public.pymt.amt"
+   ],
+   "rule": "transform",
+   "transform": "pymt.amt::numeric"
+  },
+  {
+   "target": "billing.payment.payment_method_code",
+   "sources": [
+    "public.pymt.pymt_method"
+   ],
+   "rule": "transform",
+   "transform": "CASE upper(pymt.pymt_method) WHEN 'CHQ' THEN 'cheque' WHEN 'CARD' THEN 'card' WHEN 'BACS' THEN 'bank_transfer' ELSE 'other' END"
+  },
+  {
+   "target": "billing.payment.provider_token",
+   "sources": [],
+   "rule": "new",
+   "notes": "card data not migrated (PCI)"
+  }
+ ],
+ "retired": [
+  {
+   "source": "public.inv_hdr.fax_no",
+   "reason": "no business use (SME confirmed)"
+  },
+  {
+   "source": "public.inv_dtl.ord_no",
+   "reason": "redundant: order reachable via invoice.order_number"
+  },
+  {
+   "source": "public.pymt.card_no",
+   "reason": "PCI-DSS: raw card numbers must not be migrated",
+   "decision": "ADR-0002"
+  },
+  {
+   "source": "public.pymt.bank_acct",
+   "reason": "PCI/GDPR: bank details move to PSP",
+   "decision": "ADR-0002"
+  },
+  {
+   "source": "public.pymt.sort_cd",
+   "reason": "PCI/GDPR: bank details move to PSP",
+   "decision": "ADR-0002"
+  },
+  {
+   "source": "public.pymt.pymt_id",
+   "reason": "replaced by identity payment_id; legacy id kept in migration_map"
+  }
+ ]
+}

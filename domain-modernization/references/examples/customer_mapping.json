@@ -1,0 +1,14 @@
+{"context":"customer",
+ "table_mappings":[{"target":"customer.customer","sources":["public.cust_mst"],"grain":"one row per live cust_mst","filter":"coalesce(cust_mst.del_flg,'N') <> 'Y'","legacy_key":["cust_id"]}],
+ "column_mappings":[
+  {"target":"customer.customer.customer_number","sources":["public.cust_mst.cust_id"],"rule":"transform","transform":"cust_mst.cust_id::text","requirements":["REQ-0001"]},
+  {"target":"customer.customer.display_name","sources":["public.cust_mst.cust_nm"],"rule":"transform","transform":"trim(cust_mst.cust_nm)"},
+  {"target":"customer.customer.customer_type","sources":["public.cust_mst.cust_type"],"rule":"transform","transform":"(CASE cust_mst.cust_type WHEN 'W' THEN 'wholesale' ELSE 'retail' END)::customer.customer_type"},
+  {"target":"customer.customer.email_address","sources":["public.cust_mst.email_addr"],"rule":"transform","transform":"nullif(lower(trim(cust_mst.email_addr)),'')"},
+  {"target":"customer.customer.credit_limit_amount","sources":["public.cust_mst.credit_lmt"],"rule":"transform","transform":"coalesce(round(cust_mst.credit_lmt::numeric,4),0)"},
+  {"target":"customer.customer.created_at","sources":["public.cust_mst.crt_dt"],"rule":"transform","transform":"coalesce(cust_mst.crt_dt, '1970-01-01') AT TIME ZONE 'Europe/London'"},
+  {"target":"customer.customer.updated_at","sources":["public.cust_mst.upd_dt"],"rule":"transform","transform":"coalesce(cust_mst.upd_dt, cust_mst.crt_dt, '1970-01-01') AT TIME ZONE 'Europe/London'"},
+  {"target":"customer.customer.updated_by","sources":["public.cust_mst.upd_usr"],"rule":"transform","transform":"coalesce(cust_mst.upd_usr,'legacy-migration')"}
+ ],
+ "retired":[{"source":"public.cust_mst_bak.*","reason":"2017 backup copy of cust_mst; superseded"},
+            {"source":"public.cust_mst.del_flg","reason":"soft-deleted customers are not migrated (filter)","decision":"ADR-0001"}]}
