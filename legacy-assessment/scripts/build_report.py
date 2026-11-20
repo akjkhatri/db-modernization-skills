@@ -154,23 +154,82 @@ def main():
 
     L += ["## 10. Modernization recommendations", block("recommendations", kept), ""]
 
-    q = []
+    # SME questions: generated from open review items, kept with stable ids in sme_questions.json
+    gen = []
+
+    def tbl(obj):
+        parts = obj.lower().split(".")
+        return [".".join(parts[:2])] if len(parts) >= 2 else []
+
+    def term_tables(tok):
+        return sorted(k for k, tb in cat["tables"].items()
+                      if tok in d.tokens(tb["name"]) or any(tok in d.tokens(c["name"]) for c in tb["columns"]))
+
     for r in sorted(inf, key=lambda r: r["confidence"]):
-        if r["confidence"] < 0.8:
-            q.append(f"Does `{r['table']}.{r['columns'][0]}` reference `{r['ref_table']}`? ({r['reason']})")
+        if r["confidence"] < 0.8 and r.get("status") not in ("confirmed", "rejected"):
+            gen.append(("relationship", f"{r['table']}.{r['columns'][0]}->{r['ref_table']}", [r["table"]],
+                        f"Does `{r['table']}.{r['columns'][0]}` reference `{r['ref_table']}`? ({r['reason']})"))
     for f in fs:
+        if f.get("status", "open") != "open":
+            continue
         if f["rule"] == "LA-KEY-006":
-            q.append(f"What does `{f['object']}` point to?")
+            gen.append(("finding", f["id"], tbl(f["object"]), f"What does `{f['object']}` point to?"))
         elif f["rule"] in ("LA-NAM-005", "LA-STR-002"):
-            q.append(f"What is stored in `{f['object']}` ({f['evidence']})?")
+            gen.append(("finding", f["id"], tbl(f["object"]), f"What is stored in `{f['object']}` ({f['evidence']})?"))
         elif f["rule"] == "LA-STR-007":
-            q.append(f"Is `{f['object']}` still needed, or can it be retired?")
+            gen.append(("finding", f["id"], tbl(f["object"]), f"Is `{f['object']}` still needed, or can it be retired?"))
         elif f["rule"] == "LA-STR-003":
-            q.append(f"Which entity types can `{f['object']}` link to?")
+            gen.append(("finding", f["id"], tbl(f["object"]), f"Which entity types can `{f['object']}` link to?"))
     for k in unknown:
-        q.append(f"What does the abbreviation `{k}` mean?")
-    q.append("Which time zone are legacy `timestamp without time zone` values in?")
-    L += ["## 11. Questions for subject-matter experts", block("sme_questions", kept), ""] + [f"- [ ] {x}" for x in q] + [""]
+        gen.append(("term", k, term_tables(k), f"What does the abbreviation `{k}` mean?"))
+    gen.append(("global", "timezone", [], "Which time zone are legacy `timestamp without time zone` values in?"))
+
+    sme = d.load_sme(root)
+    by_key = {(x["kind"], x["ref"]): x for x in sme["questions"]}
+    nxt = max([int(x["id"].split("-")[1]) for x in sme["questions"]] + [0]) + 1
+    live = set()
+    def dom_for(tables):
+        ds = sorted({dom_of.get(x) for x in tables if dom_of.get(x)})
+        return ds[0] if len(ds) == 1 else (", ".join(ds) if ds else None)
+
+    for kind, ref, tables, text in gen:
+        live.add((kind, ref))
+        x = by_key.get((kind, ref))
+        if x is None:
+            x = {"id": f"SQ-{nxt:04d}", "kind": kind, "ref": ref, "tables": tables, "domain": dom_for(tables),
+                 "question": text, "status": "open", "created_at": d.now_iso()}
+            nxt += 1
+            sme["questions"].append(x)
+            by_key[(kind, ref)] = x
+        else:
+            x["question"], x["tables"], x["domain"] = text, tables, dom_for(tables)
+            if x["status"] == "resolved-by-review":
+                x["status"] = "open"
+    for x in sme["questions"]:
+        if (x["kind"], x["ref"]) not in live and x["status"] == "open":
+            x["status"] = "resolved-by-review"
+            x["note"] = "the underlying item was settled through review.py (relationship, finding or glossary term)"
+    d.save_json(d.sme_path(root), sme)
+    q_open = [x for x in sme["questions"] if x["status"] == "open"]
+    q_done = [x for x in sme["questions"] if x["status"] != "open"]
+
+    def q_line(x):
+        scope = x.get("domain") or ("all contexts" if not x.get("tables") else "unassigned tables")
+        mark = "x" if x["status"] != "open" else " "
+        tail = ""
+        if x["status"] == "answered":
+            tail = f" — **{x.get('answer', '')}** ({x.get('answered_by', '?')})"
+        elif x["status"] == "waived":
+            tail = f" — waived under {x.get('adr', '?')} ({x.get('answered_by', '?')})"
+        elif x["status"] == "resolved-by-review":
+            tail = " — settled through review"
+        return f"- [{mark}] {x['id']} [{scope}] {x['question']}{tail}"
+
+    L += ["## 11. Questions for subject-matter experts", block("sme_questions", kept), "",
+          f"{len(q_open)} open, {len(q_done)} answered or settled. Record answers with "
+          "`review.py sme answer <SQ-id> \"<answer>\" --by \"Name:role\"`. "
+          "A context cannot be accepted while questions on its legacy tables are open (business gate).", ""] + \
+         [q_line(x) for x in q_open + q_done] + [""]
 
     L += ["## Appendix", "", "- Full findings: `findings.csv` (same folder)",
           "- Machine-readable: `.dbmod/legacy/findings.json`, `relationships.json`, `domains.json`, `glossary.json`", ""]
@@ -181,7 +240,7 @@ def main():
         for f in F["findings"]:
             w.writerow([f["id"], f["severity"], f["rule"], f["category"], f["object"],
                         dom_of.get(".".join(f["object"].split(".")[:2]), ""), f["message"], f["evidence"], f["recommendation"], f["status"]])
-    d.journal(root, "legacy-assessment", "report", f"report.md + findings.csv ({len(fs)} findings, {len(q)} SME questions)")
+    d.journal(root, "legacy-assessment", "report", f"report.md + findings.csv ({len(fs)} findings, {len(q_open)} open SME questions)")
     pending = [k for k in NARRATIVE if k not in kept or "<!-- CLAUDE" in kept.get(k, "")]
     print(rpath)
     print("narrative sections still to write: " + (", ".join(pending) or "none"))

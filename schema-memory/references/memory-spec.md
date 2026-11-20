@@ -24,6 +24,7 @@ This is the contract shared by all three skills. Scripts enforce most of it, and
       findings.json             assessment findings, table health scores, PII inventory
       domains.json              legacy domain clusters (candidate -> confirmed)
       glossary.json             legacy abbreviations -> expansions (suggested / confirmed / unknown)
+      sme_questions.json        questions for the business, with answers and who gave them (business gate)
       assessment/report.md      assessment report (narrative + generated sections)
       assessment/erd/*.md       Mermaid ERDs per legacy domain
     target/contexts/<ctx>/
@@ -78,10 +79,13 @@ When re-analysing, `analyze_schema.py` keeps `status` and `note` from the previo
 `confirmed_by` records the reviewer. A legacy table belongs to exactly one domain's `tables`. Hub or reference tables used by many domains go in one domain's `tables` and in other domains' `shared_tables`.
 
 ### target/contexts/<ctx>/model.json
-See `domain-modernization/references/target-model-format.md` for the full format. In summary: `context, schema, description, version, status, accepted_version, legacy_domains[], requirements[], tables[], enums[], external_refs[]`.
+See `domain-modernization/references/target-model-format.md` for the full format. In summary: `context, schema, description, version, status, accepted_version, legacy_domains[], requirements[], tables[], enums[], external_refs[]`. After acceptance it also carries `approved_by` (display string) and `approvals[]` (`{"name", "role", "at"}` per approver).
 
 ### glossary.json
 `{"terms":{"cust":{"expansion":"customer","uses":19,"status":"suggested|confirmed|unknown"}}}`. `model_lint` warns when target names use a legacy abbreviation.
+
+### sme_questions.json
+`{"questions": [{"id": "SQ-0001", "kind": "relationship|finding|term|global", "ref": "...", "tables": ["public.cust_mst"], "domain": "customer", "question": "...", "status": "open|answered|waived|resolved-by-review", "answer": "...", "answered_by": "Name (role)", "adr": "ADR-0004"}]}`. Written by `build_report.py` (ids stay stable across rebuilds, answers are kept); answered with `review.py sme`. A question with no `tables` applies to every context. `accept_model.py` blocks a context while any question on its legacy tables is `open`, or `waived` under an ADR that is not accepted.
 
 ### mapping/<ctx>.json
 ```json

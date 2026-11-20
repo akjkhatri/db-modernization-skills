@@ -1,6 +1,6 @@
 {
   "_about": "Target-schema design standards enforced by domain-modernization/scripts/model_lint.py. Copied into .dbmod/standards.json at init; edit that copy, record why in an ADR.",
-  "version": "1.0",
+  "version": "1.1",
   "engine": "postgresql",
   "engine_min_version": "15",
   "naming": {
@@ -76,5 +76,18 @@
     "location": "db/data-migration",
     "legacy_access": "postgres_fdw foreign schema named legacy_src in the migration database",
     "id_mapping_schema": "migration_map"
+  },
+  "approvals": {
+    "_about": "Who must approve a context model before accept_model.py writes a Flyway migration. Approvers are passed as --approved-by \"Name:role\" (repeatable). Roles needed depend on the data the model holds.",
+    "roles": ["architect", "dba", "data-owner", "security", "product-owner"],
+    "required_roles": ["architect"],
+    "required_roles_when_pii": {"personal": ["data-owner"], "special_category": ["data-owner", "security"], "financial": ["data-owner"], "credential": ["security"]},
+    "required_roles_when_money": ["data-owner"],
+    "distinct_people": true
+  },
+  "business_gate": {
+    "_about": "The business confirms what the legacy system actually does before a design is accepted. SME questions live in .dbmod/legacy/sme_questions.json (built by build_report.py, answered with review.py sme).",
+    "require_answered_sme_questions": true,
+    "require_confirmed_domains": true
   }
 }

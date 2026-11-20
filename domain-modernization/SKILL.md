@@ -104,14 +104,19 @@ Present the proposal to the user, in this order:
 5. Risks: the precheck areas, and any destructive or locking changes.
 6. The preview SQL.
 
-**Do not accept on your own initiative.** Acceptance writes immutable Flyway history, so it needs the user's explicit approval and the approver's name. List the proposed ADRs that the design relies on, so the approval covers them too.
+**Do not accept on your own initiative.** Acceptance writes immutable Flyway history, so it needs the user's explicit approval and the approvers' names and roles. List the proposed ADRs that the design relies on, so the approval covers them too.
+
+Before presenting, check the two human gates so nobody is surprised at acceptance:
+- **Approvals:** `standards.json → approvals` decides which roles must sign. By default an `architect` always signs, and a `data-owner` must also sign when the model holds money or personal/financial data (`security` for credentials and special-category data). Tell the user which roles this model needs and why, and ask who fills each role. Never invent a name or a role.
+- **Business gate:** every SME question on the context's legacy tables must be answered by the business (`review.py sme list --open`), and its legacy domains confirmed. Open questions block acceptance. If the business cannot answer yet, the only way forward is an ADR explaining why it is safe to proceed, recorded with `review.py sme waive`.
 
 ### 8. Accept (after approval)
 ```bash
-python3 $DM/accept_model.py --root <repo> --context <ctx> --description <snake_summary> --approved-by "<name>" --adrs ADR-0002,ADR-0003
+python3 $DM/accept_model.py --root <repo> --context <ctx> --description <snake_summary> \
+  --approved-by "<name>:architect" --approved-by "<name>:data-owner" --adrs ADR-0002,ADR-0003
 ```
-`--adrs` lists the proposed ADRs the user approved along with the design. Leave out any they did not approve. Acceptance requires the model to be `proposed` (step 7).
-This re-runs the gates and then:
+`--approved-by` takes `"Name:role"` and is repeated once per approver; one person cannot fill two roles. `--adrs` lists the proposed ADRs the user approved along with the design (including any ADR behind an SME waiver). Leave out any they did not approve. Acceptance requires the model to be `proposed` (step 7).
+This re-runs the gates (lint, lineage, conflicts, approvals, business gate) and then:
 - writes `db/migration/V<ts>__<ctx>_<desc>.sql`
 - freezes the snapshot
 - marks the mappings and REQs accepted

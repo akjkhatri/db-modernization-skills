@@ -23,6 +23,16 @@ python3 $LA/render_erd.py $R >/dev/null
 python3 $LA/build_report.py $R
 python3 $MEM/memory_validate.py $R
 
+step "Business gate: the business answers the SME questions (order domain left open on purpose)"
+python3 $LA/review.py $R sme list --open | tail -1
+for q in $(python3 -c "import json; print(' '.join(x['id'] for x in json.load(open('$W/app/.dbmod/legacy/sme_questions.json'))['questions'] if x['status']=='open' and x.get('domain')!='order'))"); do
+  python3 $LA/review.py $R sme answer $q "Confirmed in SME workshop" --by "Dana Owner:data-owner" >/dev/null
+done
+python3 $LA/review.py $R sme list --open | tail -1
+python3 $LA/review.py $R sme answer SQ-0001 "x" 2>&1 | tail -1 || true   # must refuse: --by required
+python3 $LA/build_report.py $R >/dev/null
+grep -c "^- \[x\] SQ-" "$W/app/.dbmod/legacy/assessment/report.md" | sed 's/^/answered or settled in report: /'
+
 step "Mode 2 / REQ-0001: customer context"
 python3 $MEM/memory_record.py $R new REQ --title "Customer master in new app" --source ACME-101 --contexts customer >/dev/null
 python3 $MEM/memory_record.py $R new ADR --title "Do not migrate soft-deleted customers" --contexts customer --status accepted >/dev/null
@@ -33,7 +43,10 @@ python3 $DM/model_lint.py $R --context customer
 python3 $DM/lineage_check.py $R --context customer --show-pending 5 || true
 python3 $DM/generate_migration.py $R --context customer --quiet
 python3 $DM/context_tool.py $R propose customer
-python3 $DM/accept_model.py $R --context customer --description create_customer --approved-by "Test Architect"
+expect_blocked(){ if "$@" > /tmp/dbmod-blocked.log 2>&1; then echo "FAIL: expected the gate to block"; cat /tmp/dbmod-blocked.log; exit 1; fi; grep -E "^ERROR|^---" /tmp/dbmod-blocked.log | head -4; echo "  -> blocked as expected"; }
+expect_blocked python3 $DM/accept_model.py $R --context customer --description create_customer --approved-by "Test Architect:architect"   # personal data: needs a data owner
+expect_blocked python3 $DM/accept_model.py $R --context customer --description create_customer --approved-by "Test Architect"             # no role given
+python3 $DM/accept_model.py $R --context customer --description create_customer --approved-by "Test Architect:architect" --approved-by "Dana Owner:data-owner"
 
 step "Mode 2 / REQ-0002: billing context"
 python3 $MEM/memory_record.py $R new REQ --title "Invoicing and payments" --source "https://confluence.acme/x/BILL" --contexts billing >/dev/null
@@ -48,7 +61,8 @@ python3 $DM/model_lint.py $R --context billing
 python3 $DM/lineage_check.py $R --context billing --show-pending 8 || true
 python3 $DM/check_conflicts.py $R
 python3 $DM/context_tool.py $R propose billing
-python3 $DM/accept_model.py $R --context billing --description create_billing --approved-by "Test Architect"
+expect_blocked python3 $DM/accept_model.py $R --context billing --description create_billing --approved-by "Test Architect:architect" --approved-by "Test Architect:data-owner"   # one person, two roles
+python3 $DM/accept_model.py $R --context billing --description create_billing --approved-by "Test Architect:architect" --approved-by "Fiona Finance:data-owner"
 
 step "Mode 2 / REQ-0003: change to accepted billing (bump -> ALTER migration)"
 python3 $MEM/memory_record.py $R new REQ --title "Track outstanding balance" --source ACME-140 --contexts billing >/dev/null
@@ -74,7 +88,7 @@ PY
 python3 $DM/context_tool.py $R diff billing
 python3 $DM/generate_migration.py $R --context billing --quiet
 python3 $DM/context_tool.py $R propose billing
-python3 $DM/accept_model.py $R --context billing --description outstanding_balance --approved-by "Test Architect"
+python3 $DM/accept_model.py $R --context billing --description outstanding_balance --approved-by "Test Architect:architect" --approved-by "Fiona Finance:data-owner"
 
 step "Memory after three requirements"
 python3 $MEM/memory_status.py $R
@@ -115,6 +129,14 @@ python3 $DM/model_lint.py $R --context sales | tail -1
 python3 $DM/lineage_check.py $R --context sales --show-pending 3 | tail -2
 python3 $DM/accept_model.py $R --context sales --description order_capture --approved-by "T" 2>&1 | tail -1 || true   # must refuse: not proposed
 python3 $DM/context_tool.py $R propose sales
-python3 $DM/accept_model.py $R --context sales --description order_capture --approved-by "Test Architect" | grep -E "accepted|resolved"
+expect_blocked python3 $DM/accept_model.py $R --context sales --description order_capture --approved-by "Test Architect:architect"   # order-domain SME questions still open
+python3 $MEM/memory_record.py $R new ADR --title "Order legacy quirks handled in the sales context" --contexts sales >/dev/null   # ADR-0003, proposed
+FIRST=$(python3 -c "import json; print([x['id'] for x in json.load(open('$W/app/.dbmod/legacy/sme_questions.json'))['questions'] if x['status']=='open'][0])")
+python3 $LA/review.py $R sme waive $FIRST --adr ADR-0003 --by "Olu Orders:product-owner"
+for q in $(python3 -c "import json; print(' '.join(x['id'] for x in json.load(open('$W/app/.dbmod/legacy/sme_questions.json'))['questions'] if x['status']=='open'))"); do
+  python3 $LA/review.py $R sme answer $q "Confirmed with order desk" --by "Olu Orders:product-owner" >/dev/null
+done
+expect_blocked python3 $DM/accept_model.py $R --context sales --description order_capture --approved-by "Test Architect:architect"   # waiver ADR not accepted yet
+python3 $DM/accept_model.py $R --context sales --description order_capture --approved-by "Test Architect:architect" --adrs ADR-0003 | grep -E "accepted|resolved"
 python3 $MEM/memory_validate.py $R
 echo; echo "Flyway:"; ls "$W/app/db/migration"; echo "Data migration:"; find "$W/app/db/data-migration" -type f | sort

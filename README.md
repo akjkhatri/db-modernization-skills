@@ -5,7 +5,7 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-13%2B-4169E1?logo=postgresql&logoColor=white)
 ![Claude Skills](https://img.shields.io/badge/Claude-Skills-D97757)
 
-**Three Claude skills that turn a legacy PostgreSQL database into a clean, domain-driven schema, one requirement at a time, with lineage, GDPR/PCI checks and human approval before any migration is written.**
+**Three Claude skills that turn a legacy PostgreSQL database into a clean, domain-driven schema, one requirement at a time, with lineage, GDPR/PCI checks, business confirmation of legacy behaviour and role-based approval before any migration is written.**
 
 ## The problem
 
@@ -15,15 +15,25 @@ These skills give Claude (and the team) a **persistent memory of the modernisati
 
 - every target column is traced back to its legacy source (**lineage**)
 - every legacy column is classified for **GDPR/PCI**, and PII can never silently become "non-PII"
-- nothing is written to `db/migration` until a named person **approves** the model
+- the **business confirms what the legacy system actually does** (SME questions answered) before a context is redesigned
+- nothing is written to `db/migration` until the **right people approve**: an architect, plus the data owner when the model holds money or personal data
 - **coverage** (the share of legacy columns mapped or deliberately retired) shows real progress
+## What's new in v1.1
+
+Two gates that put the business, not just engineering, in the loop. Both came out of a community discussion about who should really sign off on a legacy migration.
+
+- **Role-based approval.** `--approved-by` now takes `"Name:role"` and can be repeated. The roles a model needs come from `standards.json`: an architect always signs, and a data owner must also sign when the model holds money or personal/financial data. One person can't fill two roles. Changing money from a float to `numeric(19,4)` changes totals in the last cent, so finance has to agree the new numbers are right.
+- **Business gate.** SME questions are now tracked with stable ids in `.dbmod/legacy/sme_questions.json`. A context can't be accepted while questions on its legacy tables are unanswered, because half the "bugs" in a legacy system turn out to be rules someone relies on. If the business can't answer yet, the only way forward is a waiver backed by an accepted ADR.
+
+Projects created with v1.0 keep working: without the new `standards.json` sections, acceptance behaves as before and prints a note.
+
 ## The three skills
 
 | Skill | Mode | What it does |
 |---|---|---|
 | `schema-memory` | (base) | Persistent project memory in `.dbmod/` inside your app repo: legacy baseline, target contexts, lineage, requirements, ADRs, coverage, journal. Session protocol, queries and integrity validation. |
 | `legacy-assessment` | Mode 1 | Ingests the legacy catalog (HTML page or CSV, any layout), finds structural, typing, naming, integrity and GDPR/PCI issues, infers undeclared relationships, clusters tables into domains, draws ERDs, and writes the assessment report. |
-| `domain-modernization` | Mode 2 | For each Jira/Confluence requirement: designs the bounded-context model, maps every column to legacy (lineage), runs the lint, lineage and conflict gates, and after human approval writes Flyway migrations plus data-migration ETL with prechecks and reconciliation. |
+| `domain-modernization` | Mode 2 | For each Jira/Confluence requirement: designs the bounded-context model, maps every column to legacy (lineage), runs the lint, lineage, conflict and business gates, and after role-based approval writes Flyway migrations plus data-migration ETL with prechecks and reconciliation. |
 
 ## How it fits together
 ```
@@ -33,7 +43,8 @@ Jira / Confluence requirement ──► Mode 2 ─────┤ reads baseline
                                               ▼
                      .dbmod/target/contexts/<ctx>/model.json  +  .dbmod/mapping/<ctx>.json (lineage)
                                               │  gates: model_lint · lineage_check · check_conflicts
-                                              │  human approval (accept_model --approved-by)
+                                              │  business gate: SME questions answered by the business
+                                              │  role-based approval (accept_model --approved-by "Name:role")
                                               ▼
                      db/migration/V<ts>__<ctx>_<desc>.sql      (Flyway, immutable)
                      db/data-migration/<ctx>/vNNN/00..04       (fdw → id maps → precheck → load → reconcile)
@@ -79,8 +90,8 @@ Requirements: Python 3.9+ (standard library only). Generated SQL targets Postgre
 Then ask Claude:
 
 1. *"Assess our legacy schema. Catalog: `<file or URL>`, app repo: `<path>`"* runs Mode 1, which creates `.dbmod/`, the report and the domain map.
-2. Review: confirm domains, relationships and glossary terms; answer the SME questions in the report.
-3. *"Here's story PROJ-142 …"* (or a Confluence link or pasted text) runs Mode 2: a proposal for your approval, then *"approved, `<name>`"* produces the migration files.
+2. Review: confirm domains, relationships and glossary terms. The business answers the SME questions (`review.py sme answer SQ-0004 "..." --by "Name:data-owner"`); a context can't be accepted while questions on its legacy tables are open.
+3. *"Here's story PROJ-142 …"* (or a Confluence link or pasted text) runs Mode 2: a proposal for your approval, then *"approved by `<name>` (architect) and `<name>` (data owner)"* produces the migration files.
 4. Commit `.dbmod/` and `db/` together in one PR per requirement. In CI, run:
    `python3 schema-memory/scripts/memory_validate.py --root . --strict`
    The best catalog comes from the DBA query in `legacy-assessment/references/ingestion-guide.md`, which captures constraints, defaults and row counts. HTML catalog pages (SchemaSpy, DBeaver, dbdocs, Confluence exports) work too.
@@ -101,6 +112,8 @@ Both run in GitHub Actions on every push. All fixtures are synthetic.
 | Audit | created/updated at/by on all non-lookup tables; `row_version` on aggregate roots | standards |
 | GDPR | every column classified (`pii`); legacy PII cannot become `pii: none`; retention notes | standards → gdpr; lineage gate |
 | Migrations | Flyway `V<UTC timestamp>__<ctx>_<desc>.sql`, written only on approval | standards → flyway |
+| Approvals | architect always; data owner for money and personal/financial data; security for credentials and special-category data; one person per role | standards → approvals |
+| Business gate | legacy domains confirmed and SME questions answered (or waived under an accepted ADR) before acceptance | standards → business_gate |
 | Data migration | one-off ETL via postgres_fdw, id-map tables kept as audit trail | standards → data_migration |
 
 Edit `.dbmod/standards.json` in your repo to change these, and record the reason in an ADR.
@@ -117,7 +130,7 @@ tools/sync_common.py    keeps the shared _dbmod.py identical in all three skills
 
 ## Why skills, not a single prompt
 
-A database modernisation runs for months. A prompt forgets; these skills don't. The deterministic work (parsing catalogs, linting models, checking lineage, generating SQL) is done by tested Python scripts, while Claude does what it is good at: proposing domain models, explaining trade-offs and asking the right questions. Humans stay in charge of every decision that reaches a migration file.
+A database modernisation runs for months. A prompt forgets; these skills don't. The deterministic work (parsing catalogs, linting models, checking lineage, generating SQL) is done by tested Python scripts, while Claude does what it is good at: proposing domain models, explaining trade-offs and asking the right questions. Humans stay in charge of every decision that reaches a migration file, and the business, not just engineering, confirms what the legacy system does and signs off on data it owns.
 
 ## Author
 

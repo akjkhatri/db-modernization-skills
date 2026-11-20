@@ -322,3 +322,64 @@ def compute_coverage(root):
         "per_domain": per_dom,
         "columns": rows,
     }
+
+
+# --- approvals and business gate (v1.1) -------------------------------------------------
+
+def parse_approver(text: str):
+    """'Jane Doe:data-owner' -> ('Jane Doe', 'data-owner'). A bare name has role None."""
+    name, sep, role = text.rpartition(":") if ":" in text else (text, "", "")
+    name, role = (name or text).strip(), role.strip().lower() or None
+    if not name:
+        die(f"approver '{text}' has no name (use \"Name:role\")")
+    return name, role
+
+
+def required_approval_roles(std, model):
+    """Roles that must approve this model, from standards.approvals and the data it holds.
+    Returns (roles, reasons) where reasons maps role -> why it is needed."""
+    ap = std.get("approvals") or {}
+    roles, why = [], {}
+
+    def need(role, reason):
+        if role not in roles:
+            roles.append(role)
+        why.setdefault(role, []).append(reason)
+
+    for r in ap.get("required_roles", []):
+        need(r, "required for every context")
+    money_type = (std.get("types") or {}).get("money", "numeric(19,4)").replace(" ", "")
+    pii_rules = ap.get("required_roles_when_pii", {})
+    money_roles = ap.get("required_roles_when_money", [])
+    for t in model.get("tables", []):
+        for c in t.get("columns", []):
+            ref = f"{t['name']}.{c['name']}"
+            for r in pii_rules.get(c.get("pii", "none"), []):
+                need(r, f"{c.get('pii')} data in {ref}")
+            if money_roles and str(c.get("type", "")).replace(" ", "") == money_type:
+                for r in money_roles:
+                    need(r, f"money in {ref}")
+    for r in why:
+        why[r] = why[r][:1] + ([f"+{len(why[r]) - 1} more"] if len(why[r]) > 1 else [])
+    return roles, why
+
+
+def sme_path(root):
+    return mem(root, "legacy", "sme_questions.json")
+
+
+def load_sme(root):
+    return load_json(sme_path(root), default={"questions": []})
+
+
+def context_legacy_tables(root, model, mapping):
+    """Legacy tables a context draws from: its legacy domains plus every mapped source table."""
+    dom_of = legacy_table_domains(root)
+    doms = set(model.get("legacy_domains", []))
+    tables = {t for t, dname in dom_of.items() if dname in doms}
+    for e in mapping.get("table_mappings", []) + mapping.get("column_mappings", []):
+        for s in e.get("sources", []):
+            parts = s.lower().split(".")
+            if len(parts) >= 2:
+                tables.add(".".join(parts[:2]))
+    return tables

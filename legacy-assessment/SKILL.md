@@ -71,8 +71,12 @@ python3 $LA/review.py --root <repo> rel confirm public.emp.mgr_id
 python3 $LA/review.py --root <repo> rel add public.ord_hdr.sales_rep_id public.emp.emp_id --note "SME: rep is an employee"
 python3 $LA/review.py --root <repo> finding F-0042 accepted-risk --note "table frozen since 2019"
 python3 $LA/review.py --root <repo> term whse warehouse --confirm
+python3 $LA/review.py --root <repo> sme list --open                     # SME questions still waiting for the business
+python3 $LA/review.py --root <repo> sme answer SQ-0004 "Retired in 2019, no readers" --by "J. Patel:data-owner"
+python3 $LA/review.py --root <repo> sme waive SQ-0007 --adr ADR-0004 --by "J. Patel:data-owner"
 ```
 - `domain confirm all` confirms the business domains only. Review the `technical` and `unassigned` buckets separately, and confirm them by name.
+- **SME questions are a gate, not a to-do list.** `build_report.py` saves them with stable ids in `.dbmod/legacy/sme_questions.json`. Domain modernization cannot accept a context while questions on its legacy tables are open, because the business must confirm what the old system actually does before it is redesigned. Record the business's own answer and who gave it; never answer on their behalf. Questions settled through other review commands (a confirmed relationship, a confirmed glossary term, a finding marked accepted-risk) close automatically on the next `build_report.py`.
 - After relationship changes, refresh by re-running `analyze_schema.py`, `discover_domains.py`, `render_erd.py` and `build_report.py`. Analysis keeps finding ids stable. A finding that no longer applies, such as an unenforced-relationship finding the reviewer answered, is kept with status `not-detected` rather than deleted. Confirmed domains, reviewer-given names, review statuses and glossary terms survive the refresh.
 - Cross-cutting decisions (time zone, money, keys, PII, soft delete) go in ADRs via `$MEM/memory_record.py new ADR ...`.
 
