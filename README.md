@@ -18,6 +18,15 @@ These skills give Claude (and the team) a **persistent memory of the modernisati
 - the **business confirms what the legacy system actually does** (SME questions answered) before a context is redesigned
 - nothing is written to `db/migration` until the **right people approve**: an architect, plus the data owner when the model holds money or personal data
 - **coverage** (the share of legacy columns mapped or deliberately retired) shows real progress
+## What's new in v1.2
+
+Waivers can no longer quietly become permanent. Another good question from the same discussion: an exception written in week three shouldn't still be the rule two years later.
+
+- **Every waiver has a review date** (`sme waive … --review-by`, default 90 days). `sme review` records who re-checked it, what they found, and the next date.
+- **Visible:** `memory_status` shows how many accepted contexts rely on a waiver, with each review date.
+- **Enforced:** an overdue waiver fails `memory_validate` (and so CI) and blocks acceptance until the business answers or someone records a review.
+- **Closed loop:** when the business answers a waived question, the waiver's ADR is flagged until it is superseded or rejected.
+
 ## What's new in v1.1
 
 Two gates that put the business, not just engineering, in the loop. Both came out of a community discussion about who should really sign off on a legacy migration.
@@ -114,6 +123,7 @@ Both run in GitHub Actions on every push. All fixtures are synthetic.
 | Migrations | Flyway `V<UTC timestamp>__<ctx>_<desc>.sql`, written only on approval | standards → flyway |
 | Approvals | architect always; data owner for money and personal/financial data; security for credentials and special-category data; one person per role | standards → approvals |
 | Business gate | legacy domains confirmed and SME questions answered (or waived under an accepted ADR) before acceptance | standards → business_gate |
+| Waivers | review date on every waiver (default 90 days); overdue waivers fail validation and block acceptance | standards → business_gate.waiver_review_days |
 | Data migration | one-off ETL via postgres_fdw, id-map tables kept as audit trail | standards → data_migration |
 
 Edit `.dbmod/standards.json` in your repo to change these, and record the reason in an ADR.

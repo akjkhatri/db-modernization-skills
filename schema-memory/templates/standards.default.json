@@ -1,6 +1,6 @@
 {
   "_about": "Target-schema design standards enforced by domain-modernization/scripts/model_lint.py. Copied into .dbmod/standards.json at init; edit that copy, record why in an ADR.",
-  "version": "1.1",
+  "version": "1.2",
   "engine": "postgresql",
   "engine_min_version": "15",
   "naming": {
@@ -88,6 +88,7 @@
   "business_gate": {
     "_about": "The business confirms what the legacy system actually does before a design is accepted. SME questions live in .dbmod/legacy/sme_questions.json (built by build_report.py, answered with review.py sme).",
     "require_answered_sme_questions": true,
-    "require_confirmed_domains": true
+    "require_confirmed_domains": true,
+    "waiver_review_days": 90
   }
 }

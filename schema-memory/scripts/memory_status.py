@@ -55,6 +55,9 @@ def main():
                            for x in doms.get("domains", [])],
                "open_requirements": [r for r in reqs if r["status"] not in ("implemented", "superseded", "rejected")],
                "adrs": adrs, "journal": jr}
+        if os.path.exists(d.sme_path(root)):
+            wv, fu = d.waiver_overview(root)
+            out["waivers"], out["adr_followups"] = wv, fu
         print(json.dumps(out, indent=2, default=str))
         return
 
@@ -108,6 +111,34 @@ def main():
     if open_r:
         p(d.md_table(["id", "status", "contexts", "source", "title"],
                      [[r["id"], r["status"], ",".join(r["contexts"]) or "-", r.get("source") or "-", r["title"]] for r in open_r[-15:]]))
+    if os.path.exists(d.sme_path(root)):
+        qs = d.load_sme(root)["questions"]
+        n_open = sum(1 for q in qs if q["status"] == "open")
+        wv, fu = d.waiver_overview(root)
+        p("")
+        p("## Business gate: SME questions and waivers")
+        p(f"{len(qs)} SME questions · {n_open} open · {len(wv)} waived · "
+          f"{sum(1 for q in qs if q['status'] == 'answered')} answered by the business")
+        went_through = sorted({c for w in wv for c in w["contexts"]})
+        if wv:
+            p(f"**{len(went_through)} accepted context(s) rely on a waiver:** {', '.join(went_through) or '-'}")
+            today = d.today_iso()
+
+            def due(w):
+                if w["missing_review_date"]:
+                    return "no review date"
+                return f"**OVERDUE** since {w['review_by']}" if w["overdue"] else w["review_by"]
+            p(d.md_table(["question", "ADR", "review by", "contexts", "waived by"],
+                         [[w["id"], w["adr"], due(w), ",".join(w["contexts"]) or "(none accepted yet)", w["waived_by"] or "-"]
+                          for w in sorted(wv, key=lambda w: w["review_by"] or "")]))
+            if any(w["overdue"] for w in wv):
+                p(f"_Overdue waivers fail memory_validate and block acceptance (today {today}). "
+                  "Get the business's answer (review.py sme answer) or record a review (review.py sme review)._")
+        if fu:
+            p("")
+            p("**ADR follow-ups:** the business has since answered, but the waiver's ADR is still in force:")
+            for f in fu:
+                p(f"- {f['adr']}: {f['id']} answered by {f['answered_by']} — supersede or reject the ADR")
     p("")
     p("## Decisions (ADRs)")
     if adrs:

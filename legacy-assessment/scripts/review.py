@@ -14,7 +14,11 @@
   term <abbrev> <expansion> [--confirm]
   sme list [--open] [--domain <name>]                       SME questions (built by build_report.py)
   sme answer <SQ-0001> "<answer>" --by "Name:role"          the business answers a question
-  sme waive  <SQ-0001> --adr ADR-0004 --by "Name:role"      proceed without an answer, justified by an ADR
+  sme waive  <SQ-0001> --adr ADR-0004 --by "Name:role" [--review-by YYYY-MM-DD]
+                                                            proceed without an answer, justified by an ADR,
+                                                            until a review date (default: business_gate.waiver_review_days)
+  sme review <SQ-0001> --review-by YYYY-MM-DD --by "Name:role" --note "..."
+                                                            someone re-checked a waiver: record it and set the next date
 
 After changing relationships, re-run discover_domains.py (confirmed domains are kept) and
 build_report.py.
@@ -142,6 +146,23 @@ def term_cmd(root, a):
     print(f"{a.abbrev} = {a.expansion}")
 
 
+def check_date(text):
+    import datetime
+    try:
+        day = datetime.date.fromisoformat(text)
+    except ValueError:
+        d.die(f"review date '{text}' is not YYYY-MM-DD")
+    if day.isoformat() <= d.today_iso():
+        d.die(f"review date {text} must be in the future")
+    return day.isoformat()
+
+
+def default_review_date(root):
+    import datetime
+    days = int((d.load_standards(root).get("business_gate") or {}).get("waiver_review_days", 90))
+    return (datetime.date.fromisoformat(d.today_iso()) + datetime.timedelta(days=days)).isoformat()
+
+
 def sme_cmd(root, a):
     sme = d.load_sme(root)
     qs = sme["questions"]
@@ -151,7 +172,12 @@ def sme_cmd(root, a):
         rows = [x for x in qs if (not a.open or x["status"] == "open") and (not a.domain or x.get("domain") == a.domain)]
         for x in rows:
             scope = x.get("domain") or "all contexts"
-            extra = f" -> {x['answer']}" if x.get("answer") else (f" (waived: {x['adr']})" if x.get("adr") else "")
+            if x["status"] == "waived":
+                rb = x.get("review_by") or "no review date"
+                late = " OVERDUE" if x.get("review_by") and x["review_by"] < d.today_iso() else ""
+                extra = f" (waived: {x.get('adr')}, review by {rb}{late})"
+            else:
+                extra = f" -> {x['answer']}" if x.get("answer") else ""
             print(f"{x['id']}  {x['status']:<18} [{scope}] {x['question']}{extra}")
         print(f"{len(rows)} question(s)")
         return
@@ -163,21 +189,42 @@ def sme_cmd(root, a):
     x = next((q for q in qs if q["id"] == a.id.upper()), None)
     if x is None:
         d.die(f"{a.id} not found")
-    if a.action == "answer":
+    if a.action == "review":
+        if x["status"] != "waived":
+            d.die(f"{x['id']} is {x['status']}, not waived: only waivers are reviewed")
+        if not a.review_by or not a.note:
+            d.die('sme review needs --review-by YYYY-MM-DD and --note "what was checked" '
+                  '(if the business has answered, use sme answer instead)')
+        rb = check_date(a.review_by)
+        x.setdefault("reviews", []).append({"at": d.now_iso(), "by": f"{name} ({role or 'role not given'})",
+                                            "note": a.note, "previous_review_by": x.get("review_by")})
+        x["review_by"] = rb
+        msg = f"{x['id']} waiver reviewed by {name}, next review by {rb}"
+    elif a.action == "answer":
         if not a.text:
             d.die("sme answer needs the answer text")
+        was = dict(x) if x["status"] == "waived" else None
         x.update({"status": "answered", "answer": a.text, "answered_by": f"{name} ({role or 'role not given'})",
                   "answered_role": role, "answered_at": d.now_iso()})
         msg = f"{x['id']} answered by {name}"
+        if was:
+            x["superseded_waiver"] = {"adr": was.get("adr"), "review_by": was.get("review_by"),
+                                      "waived_by": was.get("answered_by"), "waived_at": was.get("answered_at")}
+            for k in ("adr", "review_by"):
+                x.pop(k, None)
+            msg += (f"; it replaces the waiver under {was.get('adr')}. Follow-up: supersede or reject that ADR "
+                    f"(memory_record.py status {was.get('adr')} superseded --note \"{x['id']} answered\") "
+                    "so the exception does not outlive the answer")
     else:
         if not a.adr:
             d.die("sme waive needs --adr <ADR id> explaining why the design may proceed without an answer")
         aidx = d.load_json(d.mem(root, "decisions", "index.json"), default={"items": []})
         if not any(it["id"] == a.adr.upper() for it in aidx["items"]):
             d.die(f"{a.adr} not found: record it first with memory_record.py new ADR")
+        rb = check_date(a.review_by) if a.review_by else default_review_date(root)
         x.update({"status": "waived", "adr": a.adr.upper(), "answered_by": f"{name} ({role or 'role not given'})",
-                  "answered_role": role, "answered_at": d.now_iso()})
-        msg = f"{x['id']} waived under {a.adr.upper()} by {name}"
+                  "answered_role": role, "answered_at": d.now_iso(), "review_by": rb, "reviews": []})
+        msg = f"{x['id']} waived under {a.adr.upper()} by {name}, review by {rb}"
     d.save_json(d.sme_path(root), sme)
     d.journal(root, "legacy-assessment", "review-sme", msg, question=x["question"], answer=x.get("answer"))
     print(msg)
@@ -205,10 +252,12 @@ def main():
     t.add_argument("expansion")
     t.add_argument("--confirm", action="store_true")
     sm = sub.add_parser("sme")
-    sm.add_argument("action", choices=["list", "answer", "waive"])
+    sm.add_argument("action", choices=["list", "answer", "waive", "review"])
     sm.add_argument("id", nargs="?")
     sm.add_argument("text", nargs="?")
     sm.add_argument("--adr")
+    sm.add_argument("--review-by", dest="review_by", help="YYYY-MM-DD: when the waiver must be looked at again")
+    sm.add_argument("--note")
     sm.add_argument("--open", action="store_true")
     sm.add_argument("--domain")
     for p_ in (r, f, dm, t, sm):

@@ -75,12 +75,13 @@ def check_approvals(std, m, raw):
     return approvals, errs
 
 
-def check_business_gate(root, std, m, mp, adrs_now):
+def check_business_gate(root, std, m, mp, adrs_now, waived):
     cfg = std.get("business_gate")
     if not cfg:
         print("NOTE   standards.json has no 'business_gate' section: business confirmation not enforced")
         return []
     errs = []
+    waived.clear()
     if cfg.get("require_confirmed_domains", True):
         doms = {x["name"]: x for x in d.load_domains(root).get("domains", [])}
         for name in m.get("legacy_domains", []):
@@ -100,8 +101,14 @@ def check_business_gate(root, std, m, mp, adrs_now):
                 continue
             if q["status"] == "open":
                 errs.append(f"{q['id']} unanswered: {q['question']}")
-            elif q["status"] == "waived" and q.get("adr") not in accepted_adrs:
-                errs.append(f"{q['id']} waived under {q.get('adr')}, which is not accepted (accept it, or pass it in --adrs)")
+            elif q["status"] == "waived":
+                if q.get("adr") not in accepted_adrs:
+                    errs.append(f"{q['id']} waived under {q.get('adr')}, which is not accepted (accept it, or pass it in --adrs)")
+                elif q.get("review_by") and q["review_by"] < d.today_iso():
+                    errs.append(f"{q['id']} waiver under {q.get('adr')} was due for review on {q['review_by']}: "
+                                f"get the business's answer (sme answer) or record a review (sme review)")
+                else:
+                    waived.append(q)
     return errs
 
 
@@ -142,7 +149,8 @@ def main():
         print("--- approvals: blocked")
         print("\n".join("ERROR  " + e for e in aerrs))
     adrs_now = {x.strip().upper() for x in (a.adrs or "").split(",") if x.strip()}
-    berrs = check_business_gate(root, std, m, d.load_mapping(root, ctx), adrs_now)
+    waived = []
+    berrs = check_business_gate(root, std, m, d.load_mapping(root, ctx), adrs_now, waived)
     if berrs:
         failed = True
         print("--- business gate: blocked (the business must confirm what the legacy system does)")
@@ -175,6 +183,10 @@ def main():
     m["accepted_at"] = d.now_iso()
     m["approved_by"] = approved_by
     m["approvals"] = approvals
+    m["accepted_with_waivers"] = [{"question": q["id"], "adr": q.get("adr"), "review_by": q.get("review_by")} for q in waived]
+    if waived:
+        print("NOTE   accepted on waiver(s): " + ", ".join(f"{q['id']} ({q.get('adr')}, review by {q.get('review_by') or '-'})"
+                                                         for q in waived) + " — tracked in memory_status")
     m.setdefault("migrations", []).append({"version": m["version"], "file": os.path.relpath(fpath, root).replace(os.sep, "/")})
     m["updated_at"] = d.now_iso()
     snap = os.path.join(d.context_dir(root, ctx), "snapshots", f"v{m['version']:03d}.json")
@@ -244,7 +256,7 @@ def main():
     with open(os.path.join(d.context_dir(root, ctx), "design.md"), "a", encoding="utf-8") as fh:
         fh.write(f"| {m['version']} | accepted | {', '.join(m.get('requirements', []))} | approved by {approved_by}; {fname} |\n")
     d.journal(root, "domain-modernization", "accept", f"{ctx} v{m['version']} accepted by {approved_by} -> {fname}",
-              requirements=m.get("requirements"), warnings=W)
+              requirements=m.get("requirements"), warnings=W, waivers=m.get("accepted_with_waivers") or None)
     for w in W:
         print("WARN   " + w)
     print(f"accepted {ctx} v{m['version']}")

@@ -220,7 +220,9 @@ def main():
         if x["status"] == "answered":
             tail = f" — **{x.get('answer', '')}** ({x.get('answered_by', '?')})"
         elif x["status"] == "waived":
-            tail = f" — waived under {x.get('adr', '?')} ({x.get('answered_by', '?')})"
+            rb = x.get("review_by")
+            late = " **OVERDUE**" if rb and rb < d.today_iso() else ""
+            tail = f" — waived under {x.get('adr', '?')} ({x.get('answered_by', '?')}), review by {rb or 'not set'}{late}"
         elif x["status"] == "resolved-by-review":
             tail = " — settled through review"
         return f"- [{mark}] {x['id']} [{scope}] {x['question']}{tail}"

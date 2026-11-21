@@ -137,6 +137,17 @@ def main():
         W(f"{len(multi)} legacy columns feed more than one context (fine for reference data, check ownership): "
           + ", ".join(list(multi)[:5]))
 
+    # business-gate waivers (v1.2): an exception must not outlive its review date or its answer
+    if os.path.exists(d.sme_path(root)):
+        wv, fu = d.waiver_overview(root)
+        for w in wv:
+            if w["missing_review_date"]:
+                W(f"{w['id']} is waived under {w['adr']} with no review date: set one with review.py sme review")
+            elif w["overdue"]:
+                E(f"{w['id']} waiver under {w['adr']} was due for review on {w['review_by']}"
+                  + (f" (contexts relying on it: {', '.join(w['contexts'])})" if w["contexts"] else ""))
+        for f in fu:
+            W(f"{f['adr']} still in force although the business answered {f['id']}: supersede or reject it")
     for e in errors:
         print("ERROR  " + e)
     for w in warns:

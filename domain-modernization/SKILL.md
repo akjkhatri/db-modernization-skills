@@ -108,7 +108,7 @@ Present the proposal to the user, in this order:
 
 Before presenting, check the two human gates so nobody is surprised at acceptance:
 - **Approvals:** `standards.json → approvals` decides which roles must sign. By default an `architect` always signs, and a `data-owner` must also sign when the model holds money or personal/financial data (`security` for credentials and special-category data). Tell the user which roles this model needs and why, and ask who fills each role. Never invent a name or a role.
-- **Business gate:** every SME question on the context's legacy tables must be answered by the business (`review.py sme list --open`), and its legacy domains confirmed. Open questions block acceptance. If the business cannot answer yet, the only way forward is an ADR explaining why it is safe to proceed, recorded with `review.py sme waive`.
+- **Business gate:** every SME question on the context's legacy tables must be answered by the business (`review.py sme list --open`), and its legacy domains confirmed. Open questions block acceptance. If the business cannot answer yet, the only way forward is an ADR explaining why it is safe to proceed, recorded with `review.py sme waive` and a review date. Acceptance is blocked while a waiver in scope is overdue. Tell the user when a context is being accepted on a waiver: it is listed in `memory_status.py` until the business answers.
 
 ### 8. Accept (after approval)
 ```bash

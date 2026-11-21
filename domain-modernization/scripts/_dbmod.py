@@ -383,3 +383,40 @@ def context_legacy_tables(root, model, mapping):
             if len(parts) >= 2:
                 tables.add(".".join(parts[:2]))
     return tables
+
+
+# --- waiver tracking (v1.2) -------------------------------------------------------------
+
+def today_iso():
+    return now_iso()[:10]
+
+
+def waiver_overview(root, today=None):
+    """Exceptions to the business gate, as they stand today.
+
+    waivers:   questions still waived, with review date, overdue flag and the accepted
+               contexts that went through on them
+    followups: questions the business has since answered whose waiver ADR is still in force
+               (it should be superseded or rejected so the exception doesn't live on)
+    """
+    today = today or today_iso()
+    qs = load_sme(root)["questions"]
+    adrs = {it["id"]: it for it in load_json(mem(root, "decisions", "index.json"), default={"items": []})["items"]}
+    ctx_tables = {}
+    for c in list_contexts(root):
+        m = load_model(root, c)
+        if m.get("accepted_version"):
+            ctx_tables[c] = context_legacy_tables(root, m, load_mapping(root, c))
+    waivers, followups = [], []
+    for q in qs:
+        if q["status"] == "waived":
+            qt = set(q.get("tables") or [])
+            ctxs = sorted(c for c, t in ctx_tables.items() if not qt or (qt & t))
+            rb = q.get("review_by")
+            waivers.append({"id": q["id"], "question": q["question"], "adr": q.get("adr"), "review_by": rb,
+                            "overdue": bool(rb) and rb < today, "missing_review_date": not rb,
+                            "contexts": ctxs, "waived_by": q.get("answered_by")})
+        sw = q.get("superseded_waiver")
+        if q["status"] == "answered" and sw and adrs.get(sw.get("adr"), {}).get("status") not in ("superseded", "rejected"):
+            followups.append({"id": q["id"], "adr": sw.get("adr"), "answer": q.get("answer"), "answered_by": q.get("answered_by")})
+    return waivers, followups

@@ -132,11 +132,35 @@ python3 $DM/context_tool.py $R propose sales
 expect_blocked python3 $DM/accept_model.py $R --context sales --description order_capture --approved-by "Test Architect:architect"   # order-domain SME questions still open
 python3 $MEM/memory_record.py $R new ADR --title "Order legacy quirks handled in the sales context" --contexts sales >/dev/null   # ADR-0003, proposed
 FIRST=$(python3 -c "import json; print([x['id'] for x in json.load(open('$W/app/.dbmod/legacy/sme_questions.json'))['questions'] if x['status']=='open'][0])")
-python3 $LA/review.py $R sme waive $FIRST --adr ADR-0003 --by "Olu Orders:product-owner"
+IN30=$(python3 -c "import datetime; print(datetime.date.today() + datetime.timedelta(days=30))")
+YESTERDAY=$(python3 -c "import datetime; print(datetime.date.today() - datetime.timedelta(days=1))")
+python3 $LA/review.py $R sme waive $FIRST --adr ADR-0003 --by "Olu Orders:product-owner" --review-by $YESTERDAY 2>&1 | tail -1 || true   # must refuse: past date
+python3 $LA/review.py $R sme waive $FIRST --adr ADR-0003 --by "Olu Orders:product-owner" --review-by $IN30
 for q in $(python3 -c "import json; print(' '.join(x['id'] for x in json.load(open('$W/app/.dbmod/legacy/sme_questions.json'))['questions'] if x['status']=='open'))"); do
   python3 $LA/review.py $R sme answer $q "Confirmed with order desk" --by "Olu Orders:product-owner" >/dev/null
 done
 expect_blocked python3 $DM/accept_model.py $R --context sales --description order_capture --approved-by "Test Architect:architect"   # waiver ADR not accepted yet
 python3 $DM/accept_model.py $R --context sales --description order_capture --approved-by "Test Architect:architect" --adrs ADR-0003 | grep -E "accepted|resolved"
+
+step "Waivers are tracked: review date, overdue check, and the ADR follow-up once the business answers"
+SMEF="$W/app/.dbmod/legacy/sme_questions.json"
+python3 $MEM/memory_status.py $R | sed -n '/## Business gate/,/## Decisions/p' | sed '$d'
+python3 $MEM/memory_validate.py $R | tail -1
+python3 - "$SMEF" "$FIRST" "$YESTERDAY" <<'EOF'
+import json, sys
+p, qid, day = sys.argv[1:]
+s = json.load(open(p))
+for q in s["questions"]:
+    if q["id"] == qid:
+        q["review_by"] = day          # simulate time passing: the review date is now in the past
+json.dump(s, open(p, "w"), indent=2)
+EOF
+expect_blocked python3 $MEM/memory_validate.py $R   # overdue waiver fails validation (and CI)
+python3 $LA/review.py $R sme review $FIRST --review-by $IN30 --by "Fiona Finance:data-owner" --note "Finance still reconciling 2019 archive"
+python3 $MEM/memory_validate.py $R | tail -1
+python3 $LA/review.py $R sme answer $FIRST "Archive is read-only; migrate as history" --by "Fiona Finance:data-owner"
+python3 $MEM/memory_status.py $R | grep -A2 "ADR follow-ups"
+python3 $MEM/memory_record.py $R status ADR-0003 superseded --note "$FIRST answered by the business" >/dev/null
+python3 $MEM/memory_status.py $R | grep -c "ADR follow-ups" | sed 's/^/follow-ups after superseding the ADR: /' || true
 python3 $MEM/memory_validate.py $R
 echo; echo "Flyway:"; ls "$W/app/db/migration"; echo "Data migration:"; find "$W/app/db/data-migration" -type f | sort
