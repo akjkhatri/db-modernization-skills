@@ -18,6 +18,18 @@ These skills give Claude (and the team) a **persistent memory of the modernisati
 - the **business confirms what the legacy system actually does** (SME questions answered) before a context is redesigned
 - nothing is written to `db/migration` until the **right people approve**: an architect, plus the data owner when the model holds money or personal data
 - **coverage** (the share of legacy columns mapped or deliberately retired) shows real progress
+- migrated money is **reconciled to the penny** against the raw legacy values, row by row, and the data owner signs it off
+## What's new in v1.3
+
+Reconciliation now checks the money to the penny, not just the totals. This came from a reader who has been through migrations where the totals matched but individual accounts were a few pence out.
+
+- **Raw vs converted vs target.** Each money total is shown three ways: the raw legacy sum, the sum after transforms, and what landed in the target. Before, reconcile compared the converted value with the target, so a transform that rounded wrongly passed. Now it shows as `MISMATCH (conversion changes the total)`.
+- **Row by row.** Every legacy row is followed through its id map to its new row, and each money value is compared at `money_scale` decimal places (default 2). The report shows how many rows differ, the largest difference and example legacy keys.
+- **Per parent and per month.** Totals per invoice, per account (any foreign key resolved by lookup) and per calendar month, so drift that cancels out across a whole table still shows.
+- **Data-owner sign-off.** Each data migration now includes `05_signoff.md`, and the migration guide has a parallel-run template for the calculations that move money.
+
+Tested on a real PostgreSQL: a transform that rounds one line from 67.08 to 67.10 passes a converted-vs-target check, and v1.3 flags the total, the row and its invoice. Projects created before v1.3 use the defaults and print a note.
+
 ## What's new in v1.2
 
 Waivers can no longer quietly become permanent. Another good question from the same discussion: an exception written in week three shouldn't still be the rule two years later.
@@ -56,7 +68,7 @@ Jira / Confluence requirement ──► Mode 2 ─────┤ reads baseline
                                               │  role-based approval (accept_model --approved-by "Name:role")
                                               ▼
                      db/migration/V<ts>__<ctx>_<desc>.sql      (Flyway, immutable)
-                     db/data-migration/<ctx>/vNNN/00..04       (fdw → id maps → precheck → load → reconcile)
+                     db/data-migration/<ctx>/vNNN/00..05       (fdw → id maps → precheck → load → reconcile → sign-off)
 ```
 
 ## Example: what it finds in a typical legacy schema
@@ -86,7 +98,7 @@ customer: 8/12 target columns mapped explicitly · 25 legacy columns pending · 
 billing: 20/38 target columns mapped explicitly · 5 legacy columns pending · 0 error(s)
 ```
 
-The run ends with approved Flyway migrations and a five-step data migration (prerequisites, id maps, precheck, load, reconcile) for each context. ERDs are generated as Mermaid diagrams, so they render directly on GitHub.
+The run ends with approved Flyway migrations and a six-step data migration (prerequisites, id maps, precheck, load, reconcile, data-owner sign-off) for each context. ERDs are generated as Mermaid diagrams, so they render directly on GitHub.
 
 ## Quick start
 
@@ -124,6 +136,7 @@ Both run in GitHub Actions on every push. All fixtures are synthetic.
 | Approvals | architect always; data owner for money and personal/financial data; security for credentials and special-category data; one person per role | standards → approvals |
 | Business gate | legacy domains confirmed and SME questions answered (or waived under an accepted ADR) before acceptance | standards → business_gate |
 | Waivers | review date on every waiver (default 90 days); overdue waivers fail validation and block acceptance | standards → business_gate.waiver_review_days |
+| Reconcile | money compared to 2 dp: raw vs converted vs target totals, per row via the id maps, per parent and per month; data owner signs `05_signoff.md` | standards → data_migration.reconcile |
 | Data migration | one-off ETL via postgres_fdw, id-map tables kept as audit trail | standards → data_migration |
 
 Edit `.dbmod/standards.json` in your repo to change these, and record the reason in an ADR.

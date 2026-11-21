@@ -120,7 +120,7 @@ This re-runs the gates (lint, lineage, conflicts, approvals, business gate) and 
 - writes `db/migration/V<ts>__<ctx>_<desc>.sql`
 - freezes the snapshot
 - marks the mappings and REQs accepted
-- generates `db/data-migration/<ctx>/v<NNN>/` (run order and handling in `references/migration-guide.md`)
+- generates `db/data-migration/<ctx>/v<NNN>/` (run order and handling in `references/migration-guide.md`). Its `04_reconcile.sql` compares money raw legacy vs converted vs target, per row through the id maps, per parent and per month, at `data_migration.reconcile.money_scale` dp; `05_signoff.md` is the data owner's reconcile sign-off. Tell the user the migration is not done until every reconcile row is `OK` or explained, and the data owner has signed
 
 Fill in the REQ's **Schema changes** section.
 

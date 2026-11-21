@@ -1,6 +1,6 @@
 {
   "_about": "Target-schema design standards enforced by domain-modernization/scripts/model_lint.py. Copied into .dbmod/standards.json at init; edit that copy, record why in an ADR.",
-  "version": "1.2",
+  "version": "1.3",
   "engine": "postgresql",
   "engine_min_version": "15",
   "naming": {
@@ -75,7 +75,15 @@
   "data_migration": {
     "location": "db/data-migration",
     "legacy_access": "postgres_fdw foreign schema named legacy_src in the migration database",
-    "id_mapping_schema": "migration_map"
+    "id_mapping_schema": "migration_map",
+    "reconcile": {
+      "_about": "04_reconcile.sql checks. money_scale: decimal places money is compared at (2 = to the penny). per_row: follow every legacy row through its id map and compare each money value. per_parent / per_month: totals per foreign-key parent and per calendar month, so drift that cancels out overall still shows. examples: legacy keys listed per failing check.",
+      "money_scale": 2,
+      "per_row": true,
+      "per_parent": true,
+      "per_month": true,
+      "examples": 5
+    }
   },
   "approvals": {
     "_about": "Who must approve a context model before accept_model.py writes a Flyway migration. Approvers are passed as --approved-by \"Name:role\" (repeatable). Roles needed depend on the data the model holds.",

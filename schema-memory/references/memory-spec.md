@@ -36,7 +36,7 @@ This is the contract shared by all three skills. Scripts enforce most of it, and
     requirements/index.json + REQ-nnnn-*.md
     decisions/index.json + ADR-nnnn-*.md
   db/migration/                 Flyway migrations (location set in standards.json)
-  db/data-migration/<ctx>/      one-off legacy -> new ETL scripts and reconciliation queries
+  db/data-migration/<ctx>/      one-off legacy -> new ETL scripts, reconcile report (04) and data-owner sign-off sheet (05)
 ```
 
 ## 2. Lifecycles

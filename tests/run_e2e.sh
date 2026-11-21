@@ -163,4 +163,18 @@ python3 $MEM/memory_status.py $R | grep -A2 "ADR follow-ups"
 python3 $MEM/memory_record.py $R status ADR-0003 superseded --note "$FIRST answered by the business" >/dev/null
 python3 $MEM/memory_status.py $R | grep -c "ADR follow-ups" | sed 's/^/follow-ups after superseding the ADR: /' || true
 python3 $MEM/memory_validate.py $R
+echo "== v1.3 reconcile: generated checks and sign-off sheet"
+BV=$(ls -d "$W/app/db/data-migration/billing"/v* | sort | tail -1)
+for k in "row count" "money total" "money per row" "money per parent" "money per month"; do
+  n=$(grep -cE "SELECT [0-9]+, '$k'" "$BV/04_reconcile.sql"); [ "$n" -gt 0 ] || { echo "FAIL: no '$k' check in 04_reconcile.sql"; exit 1; }; echo "  $k: $n"; done
+[ -f "$BV/05_signoff.md" ] || { echo "FAIL: 05_signoff.md missing"; exit 1; }; grep -m1 "Money compared at" "$BV/05_signoff.md"
+cp "$W/app/.dbmod/standards.json" /tmp/dbmod-standards.bak
+python3 - "$W/app/.dbmod/standards.json" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["data_migration"].pop("reconcile")   # a project created before v1.3
+json.dump(s, open(p, "w"), indent=2)
+EOF
+python3 $DM/generate_data_migration.py $R --context billing | grep -E "^NOTE" || { echo "FAIL: no NOTE for missing reconcile section"; exit 1; }
+grep -q "'money per row'" "$BV/04_reconcile.sql" && echo "  pre-v1.3 project: defaults used, per-row checks still generated"
+cp /tmp/dbmod-standards.bak "$W/app/.dbmod/standards.json"; python3 $DM/generate_data_migration.py $R --context billing >/dev/null
 echo; echo "Flyway:"; ls "$W/app/db/migration"; echo "Data migration:"; find "$W/app/db/data-migration" -type f | sort

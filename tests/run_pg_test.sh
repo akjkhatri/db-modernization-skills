@@ -50,4 +50,18 @@ $PSQL -d app -c "SELECT invoice_number, customer_id, status, net_amount, vat_amo
   -c "SELECT customer_number, display_name, customer_type, email_address, credit_limit_amount FROM customer.customer ORDER BY 1" \
   -c "SELECT i.invoice_number, c.customer_number AS migrated_customer, l.cust_id AS legacy_customer, (c.customer_number = l.cust_id::text) AS lineage_ok FROM billing.invoice i JOIN customer.customer c ON c.customer_id = i.customer_id JOIN legacy_src.inv_hdr l ON 'INV-' || lpad(l.inv_no::text, 8, '0') = i.invoice_number ORDER BY 1" \
   -c "SELECT p.amount, p.payment_method_code, p.provider_token, p.received_at FROM billing.payment p ORDER BY 1"
+echo "== v1.3 DRIFT TEST: a conversion that rounds line amounts to 1 dp (67.08 -> 67.10)."
+echo "   Converted and target totals agree (a converted-vs-target sum would pass); the raw-vs-target checks must flag it."
+python3 - "$W/app/.dbmod/mapping/billing.json" <<'PY2'
+import json,sys; p=sys.argv[1]; m=json.load(open(p))
+for cm in m["column_mappings"]:
+    if cm["target"] == "billing.invoice_line.line_amount": cm.update(rule="transform", transform="round(inv_dtl.amt::numeric, 1)")
+json.dump(m,open(p,"w"),indent=1)
+PY2
+python3 "$PKG/domain-modernization/scripts/generate_data_migration.py" --root "$W/app" --context billing >/dev/null
+$PSQL -d app -c "TRUNCATE billing.payment, billing.invoice_line, billing.invoice; DROP TABLE migration_map.billing__invoice, migration_map.billing__invoice_line, migration_map.billing__payment"
+run_ctx "$LATEST" | tee /tmp/dbmod-drift.log | grep -E "check_type|---|line_amount"
+for want in "MISMATCH \\(conversion changes the total\\)" "money per row +\\| invoice_line\\.line_amount +\\|.*\\| +1 \\| +0\\.02 \\| MISMATCH" "money per parent +\\| invoice_line\\.line_amount +\\|.*\\| +1 \\| +0\\.02 \\| MISMATCH"; do
+  grep -qE "$want" /tmp/dbmod-drift.log || { echo "FAIL: drift not detected ($want)"; $AS "$PGBIN/pg_ctl -D $DATA stop -m fast" >/dev/null; exit 1; }; done
+echo "  -> drift detected as expected: total, the row (legacy key 5002|1) and its invoice (5002)"
 $AS "$PGBIN/pg_ctl -D $DATA stop -m fast" >/dev/null

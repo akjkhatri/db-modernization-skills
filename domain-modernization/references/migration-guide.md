@@ -36,16 +36,37 @@ The new application is a different system, so there is no long-running sync. Ins
 
       Each check runs on its own. A check that depends on a context not loaded yet shows as `NOT RUN` instead of failing the whole file. **An empty result means the load can run.** Every row is a decision: fix at source, add a `filter`, change a transform to default, or relax the model. Record the decision in an ADR, update the mapping, and regenerate with `generate_data_migration.py`.
    4. `03_load.sql`: a single transaction with INSERT … SELECT in FK order, `OVERRIDING SYSTEM VALUE` with the pre-allocated ids.
-   5. `04_reconcile.sql`: source vs target row counts and money sums. Differences must be explained by filters.
+   5. `04_reconcile.sql`: the reconcile report. One row per check, each with a status (`OK`, `MISMATCH`, `NOT RUN`, `FAILS`). Money is compared at `data_migration.reconcile.money_scale` decimal places (default 2, to the penny):
+      - **row count** per table, with any mapping filter shown in the note
+      - **money total**: the raw legacy sum, the converted sum (after transforms) and the target sum, side by side. If a transform changes the total (rounding, truncation, a wrong sign), the status is `MISMATCH (conversion changes the total)`, even though converted and target agree. Derived columns (built from several legacy columns) have no raw value, so they are compared after conversion and the note says so
+      - **money per row**: every legacy row is followed through its id map to its target row, and each money value is compared. The report gives the number of differing rows, the largest difference and example legacy keys. Tables with no legacy key or identity id map show `NOT RUN`
+      - **money per parent**: totals per foreign-key parent resolved by lookup (e.g. invoice lines per invoice, payments per invoice)
+      - **money per month**: totals per calendar month of the table's first business date column. Drift that cancels out across the whole table still shows here
+
+      Turn checks off or change the scale in `standards.json` (`per_row`, `per_parent`, `per_month`, `money_scale`, `examples`). Projects created before v1.3 use the defaults and print a NOTE.
+   6. `05_signoff.md`: paste the reconcile output in. Every row that is not `OK` is either fixed (mapping change, regenerate, re-run) or explained (a documented filter, or an ADR) and accepted. **The data owner signs it before go-live**, and the decision is recorded in `.dbmod/decisions/`.
 3. Keep `migration_map` after go-live. It is the audit trail from legacy keys to new ids, and support teams use it.
 
-**Re-running:** truncate the context's target tables (children first), drop or keep its id maps, then run 01–04 again.
+**Re-running:** truncate the context's target tables (children first), drop or keep its id maps, then run 01–04 again and update the sign-off.
 
 **Large tables:** for tens of millions of rows, split `03_load.sql` per table and batch by legacy key ranges. Load with indexes and FKs in place unless timings say otherwise. Run `ANALYZE` after loading.
 
 **Performance of postgres_fdw:**
 - Set `fetch_size` on the server (e.g. `OPTIONS (fetch_size '10000')`) and `use_remote_estimate 'true'` for joins.
 - For very large volumes, consider staging the legacy tables with `pg_dump --data-only -t` into a local `legacy_src` schema instead of reading through the FDW.
+
+## Parallel run (recommended for money)
+Reconcile proves the migrated data matches legacy at the moment of migration. A parallel run proves the new application calculates the same way. Template:
+
+| Item | What to fill in |
+|---|---|
+| Period | e.g. one full billing cycle or month end, chosen with the data owner |
+| Scope | the calculations that move money: invoice totals, VAT, balances, interest, fees |
+| Inputs | the same real transactions entered or replayed in both systems |
+| Compare | totals per account (parent) and per period, at the same `money_scale` as reconcile |
+| Tolerance | normally zero. Any non-zero tolerance is a data-owner decision recorded in an ADR |
+| Differences | each one explained: legacy bug (ADR), new bug (fix), or accepted rule change (ADR) |
+| Exit | data-owner sign-off, recorded in the `Parallel run` section of `05_signoff.md` |
 
 ## Verified behaviour
 `tests/run_pg_test.sh` in the package runs the whole chain against a real PostgreSQL server:
@@ -54,4 +75,5 @@ The new application is a different system, so there is no long-running sync. Ins
 - migrates customer, then billing
 - shows the precheck catching an orphan, which makes the load fail
 - applies a mapping decision and regenerates
-- reconciles with matching counts and sums
+- reconciles with every check `OK`: counts, raw vs converted vs target totals, per row, per invoice and per month
+- **drift test:** changes a transform to round line amounts to 1 dp (67.08 becomes 67.10). Converted and target totals still agree, so a converted-vs-target sum alone would pass. The reconcile report flags the total, the one row (legacy key `5002|1`) and its invoice (`5002`)
