@@ -146,8 +146,25 @@ def main():
             elif w["overdue"]:
                 E(f"{w['id']} waiver under {w['adr']} was due for review on {w['review_by']}"
                   + (f" (contexts relying on it: {', '.join(w['contexts'])})" if w["contexts"] else ""))
+            if w["renewed_past_limit_without_senior"]:
+                E(f"{w['id']} waiver was renewed past the limit of {w['max_renewals']} without "
+                  f"{' or '.join(d.gate_settings(root)['renewal_roles_after_limit'])}: "
+                  + ", ".join(x or "?" for x in w["renewed_past_limit_without_senior"]))
+            elif w["at_limit"] and not w["overdue"]:
+                W(f"{w['id']} waiver has been renewed {w['renewals']} time(s) (limit {w['max_renewals']}): "
+                  "get the business's answer, or the next renewal needs senior sign-off")
         for f in fu:
             W(f"{f['adr']} still in force although the business answered {f['id']}: supersede or reject it")
+    # finance rulings on reconcile differences (v1.5) must rest on a decision that is still in force
+    rp = d.mem(root, "decisions", "reconcile_rulings.json")
+    if os.path.exists(rp):
+        adr_st = {it["id"]: it.get("status") for it in d.load_json(d.mem(root, "decisions", "index.json"), default={"items": []})["items"]}
+        for r in d.load_json(rp, default={"rulings": []})["rulings"]:
+            if adr_st.get(r["adr"]) in ("rejected", "superseded", None):
+                W(f"{r['id']} (reconcile ruling, {r['context']} {r['target']}) rests on {r['adr']}, which is "
+                  f"{adr_st.get(r['adr']) or 'missing'}: re-rule or remove it")
+            if r["decision"] == "new-correct" and r["period_status"] == "closed" and not r.get("disclosure"):
+                E(f"{r['id']} accepts a difference in closed period {r['period']} without a disclosure")
     for e in errors:
         print("ERROR  " + e)
     for w in warns:

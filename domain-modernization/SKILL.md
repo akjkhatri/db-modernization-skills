@@ -120,7 +120,8 @@ This re-runs the gates (lint, lineage, conflicts, approvals, business gate) and 
 - writes `db/migration/V<ts>__<ctx>_<desc>.sql`
 - freezes the snapshot
 - marks the mappings and REQs accepted
-- generates `db/data-migration/<ctx>/v<NNN>/` (run order and handling in `references/migration-guide.md`). Its `04_reconcile.sql` compares money raw legacy vs converted vs target, per row through the id maps, per parent and per month, at `data_migration.reconcile.money_scale` dp; `05_signoff.md` is the data owner's reconcile sign-off. Tell the user the migration is not done until every reconcile row is `OK` or explained, and the data owner has signed
+- generates `db/data-migration/<ctx>/v<NNN>/` (run order and handling in `references/migration-guide.md`). Its `04_reconcile.sql` compares money raw legacy vs converted vs target, per row through the id maps, per parent and per month, at `data_migration.reconcile.money_scale` dp; `05_signoff.md` is the data owner's reconcile sign-off. Tell the user the migration is not done until every reconcile row is `OK` or explained, and the data owner has signed. Since v1.5 it also flags legacy NULLs that became values, compares totals per currency at each currency's decimal places, applies the rounding agreed with finance (`half-up`, `half-even`, `truncate`) and the business time zone, and runs the context's `reconcile_invariants` (e.g. invoice net = sum of lines). A deliberate unit or FX change is declared with `reconcile_raw` on the column mapping, so it is not reported as a mismatch.
+- **A difference is not automatically a migration bug.** Sometimes legacy was wrong. Finance decides, never the migration team: record it with `reconcile_ruling.py add` (`new-correct` = legacy was wrong, the migrated value stands; `legacy-correct` = fix the mapping), for a stated reporting period. In a closed period the reported figure is not restated, so a disclosure is required. Regenerate the data migration afterwards; the rulings appear in `04_reconcile.sql` and `05_signoff.md`
 
 Fill in the REQ's **Schema changes** section.
 
@@ -141,6 +142,7 @@ Remind them to commit `.dbmod/` and `db/` together in one PR.
 - **"Add a column / small change":** still follow steps 4–8, just quickly. The bump, lineage, gates and approval are what keep the memory trustworthy.
 - **"Just show me the SQL":** run steps 5–6 and show the preview. Explain that nothing is final until it is accepted.
 - **"What would X look like?":** sketch the design in the conversation without writing memory, and offer to record it as a REQ.
+- **Reconcile results from a real run:** for each row that is not `OK`, find out whether the migration or legacy is wrong. Fix the mapping yourself when the migration is wrong. When it may be legacy, ask the user to get finance's ruling and record it with `reconcile_ruling.py` (never rule yourself), then regenerate.
 - **Precheck results from a real run:** treat each row as a data decision. Update the mapping filter or transform, or the model. Add an ADR, then run `generate_data_migration.py --context <ctx>` again. A mapping-only change doesn't need a model bump.
 
 ## Judgement notes

@@ -36,14 +36,29 @@ The new application is a different system, so there is no long-running sync. Ins
 
       Each check runs on its own. A check that depends on a context not loaded yet shows as `NOT RUN` instead of failing the whole file. **An empty result means the load can run.** Every row is a decision: fix at source, add a `filter`, change a transform to default, or relax the model. Record the decision in an ADR, update the mapping, and regenerate with `generate_data_migration.py`.
    4. `03_load.sql`: a single transaction with INSERT … SELECT in FK order, `OVERRIDING SYSTEM VALUE` with the pre-allocated ids.
-   5. `04_reconcile.sql`: the reconcile report. One row per check, each with a status (`OK`, `MISMATCH`, `NOT RUN`, `FAILS`). Money is compared at `data_migration.reconcile.money_scale` decimal places (default 2, to the penny):
+   5. `04_reconcile.sql`: the reconcile report. One row per check, each with a status (`OK`, `MISMATCH`, `REVIEW`, `EXPLAINED`, `NOT RUN`, `FAILS`). Money is compared at `data_migration.reconcile.money_scale` decimal places (default 2, to the penny), or at each currency's own decimal places (`currency_scales`: JPY 0, KWD 3 …) where the table has a currency column. Rounding follows `rounding` (`half-up` = PostgreSQL `round`, `half-even` = banker's, `truncate`), as agreed with finance; `00_prerequisites.sql` creates `migration_map.round_money(x, 2)` with the same rule for use in transforms. Months are cut in `time_zone` (set this to the business's time zone, e.g. `Europe/London`):
       - **row count** per table, with any mapping filter shown in the note
       - **money total**: the raw legacy sum, the converted sum (after transforms) and the target sum, side by side. If a transform changes the total (rounding, truncation, a wrong sign), the status is `MISMATCH (conversion changes the total)`, even though converted and target agree. Derived columns (built from several legacy columns) have no raw value, so they are compared after conversion and the note says so
       - **money per row**: every legacy row is followed through its id map to its target row, and each money value is compared. The report gives the number of differing rows, the largest difference and example legacy keys. Tables with no legacy key or identity id map show `NOT RUN`
       - **money per parent**: totals per foreign-key parent resolved by lookup (e.g. invoice lines per invoice, payments per invoice)
       - **money per month**: totals per calendar month of the table's first business date column. Drift that cancels out across the whole table still shows here
+      - **money per currency**: totals per currency, each rounded at its own decimal places
+      - **money nulls**: legacy NULLs that became a value in the target (usually 0 via `coalesce`). That is a business decision, so the status is `REVIEW` until finance rules on it
+      - **invariant**: totals that must agree inside the target, from the mapping's `reconcile_invariants`: invoice net = sum of lines, debits = credits, balance = opening + movements. If the per-row checks are OK but an invariant fails, legacy already had the inconsistency
+      - **expected values for deliberate conversions**: when a transform changes units or currency on purpose (pence to pounds, FX), declare `reconcile_raw` on the column mapping so the check compares against what the value should become
 
-      Turn checks off or change the scale in `standards.json` (`per_row`, `per_parent`, `per_month`, `money_scale`, `examples`). Projects created before v1.3 use the defaults and print a NOTE.
+      Turn checks off or change the scale in `standards.json` (`per_row`, `per_parent`, `per_month`, `per_currency`, `money_scale`, `currency_scales`, `rounding`, `time_zone`, `examples`). Projects created before v1.3 use the defaults and print a NOTE.
+
+      **Finance rulings.** A difference is not automatically a migration bug: sometimes the legacy number was the odd one all along. Finance decides which value is correct, for a stated reporting period, with `reconcile_ruling.py`:
+      ```bash
+      python3 $DM/reconcile_ruling.py add --context billing --check "money per row" --target invoice_line.line_amount \
+        --key "5002|1" --decision new-correct --period FY2023 --period-status closed \
+        --disclosure "Disclosed in the migration report; no restatement" --adr ADR-0007 --by "Fiona Finance:data-owner" --note "why"
+      ```
+      - `new-correct`: legacy was wrong and the migrated value stands. Those rows count as `ruled_rows`, not differences, and totals that differ only because of them show `EXPLAINED`.
+      - `legacy-correct`: the migration is wrong. The check stays `MISMATCH` (the note counts the ruled rows) until the mapping is fixed.
+      - A closed period's reported figures are not restated, so accepting a difference there needs `--disclosure`. Finance may rule differently before and after the annual close, which is why every ruling carries its period.
+      - Only `ruling_roles` (default `data-owner`) may rule. Regenerate the data migration after a ruling; it appears in `04_reconcile.sql` and `05_signoff.md`.
    6. `05_signoff.md`: paste the reconcile output in. Every row that is not `OK` is either fixed (mapping change, regenerate, re-run) or explained (a documented filter, or an ADR) and accepted. **The data owner signs it before go-live**, and the decision is recorded in `.dbmod/decisions/`.
 3. Keep `migration_map` after go-live. It is the audit trail from legacy keys to new ids, and support teams use it.
 
@@ -77,3 +92,4 @@ Reconcile proves the migrated data matches legacy at the moment of migration. A 
 - applies a mapping decision and regenerates
 - reconciles with every check `OK`: counts, raw vs converted vs target totals, per row, per invoice and per month
 - **drift test:** changes a transform to round line amounts to 1 dp (67.08 becomes 67.10). Converted and target totals still agree, so a converted-vs-target sum alone would pass. The reconcile report flags the total, the one row (legacy key `5002|1`) and its invoice (`5002`)
+- **v1.5:** a `legacy-correct` ruling keeps that row MISMATCH until fixed; legacy amounts in pence fail every row until `reconcile_raw` declares the conversion; legacy that disagrees with itself (invoice header 67.08, lines 67.00) passes per row but fails the invoice = sum of lines invariant, and passes once finance rules (FY2023, closed, disclosed); rulings without a disclosure or by a non-data-owner are refused; a legacy NULL credit limit that became 0 shows REVIEW until ruled; banker's rounding gives 2.345 → 2.34, 2.355 → 2.36

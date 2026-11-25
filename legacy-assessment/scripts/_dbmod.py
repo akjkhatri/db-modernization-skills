@@ -372,6 +372,85 @@ def load_sme(root):
     return load_json(sme_path(root), default={"questions": []})
 
 
+SME_STATUSES = ("open", "answered", "waived", "resolved-by-review")
+
+
+def sme_counts(qs):
+    c = {k: sum(1 for q in qs if q["status"] == k) for k in SME_STATUSES}
+    c["total"] = len(qs)
+    return c
+
+
+def save_sme(root, sme):
+    """Save the SME questions and keep one dated snapshot of the counts per day (v1.4 trend)."""
+    save_json(sme_path(root), sme)
+    hp = mem(root, "legacy", "sme_history.json")
+    h = load_json(hp, default={"snapshots": []})
+    snap = {"date": today_iso(), **sme_counts(sme["questions"])}
+    h["snapshots"] = [x for x in h["snapshots"] if x["date"] != snap["date"]] + [snap]
+    h["snapshots"].sort(key=lambda x: x["date"])
+    save_json(hp, h)
+
+
+def sme_history(root):
+    return load_json(mem(root, "legacy", "sme_history.json"), default={"snapshots": []})["snapshots"]
+
+
+def gate_settings(root):
+    """business_gate settings with v1.4 defaults (projects created earlier have no renewal keys)."""
+    bg = dict((load_standards(root) or {}).get("business_gate") or {})
+    bg.setdefault("waiver_review_days", 90)
+    bg.setdefault("waiver_due_soon_days", 14)
+    bg.setdefault("max_waiver_renewals", 2)
+    bg.setdefault("renewal_roles_after_limit", ["data-owner"])
+    return bg
+
+
+def review_role(r):
+    """Role of a waiver review entry (stored since v1.4; parsed from 'Name (role)' before that)."""
+    if r.get("role"):
+        return r["role"]
+    by = r.get("by") or ""
+    return by[by.rfind("(") + 1:-1] if by.endswith(")") and "(" in by else None
+
+
+def first_review_date(q):
+    """The review date a waiver was first given, before any renewal."""
+    if q.get("first_review_by"):
+        return q["first_review_by"]
+    if (q.get("superseded_waiver") or {}).get("first_review_by"):
+        return q["superseded_waiver"]["first_review_by"]
+    revs = q.get("reviews") or []
+    if revs and revs[0].get("previous_review_by"):
+        return revs[0]["previous_review_by"]
+    return q.get("review_by") or (q.get("superseded_waiver") or {}).get("review_by")
+
+
+def waiver_engagement(root, today=None):
+    """The reader's question: how many waivers are still open when the first ones come due?
+
+    first_due: the earliest first review date of any waiver (current or since answered)
+    state:     'none' (no waivers yet), 'upcoming' (first due date ahead: counts as of today),
+               'recorded' (counts from the first snapshot on/after first_due), 'not-recorded'
+    """
+    today = today or today_iso()
+    qs = load_sme(root)["questions"]
+    dates = [first_review_date(q) for q in qs if q["status"] == "waived" or q.get("superseded_waiver")]
+    dates = sorted(x for x in dates if x)
+    if not dates:
+        return {"state": "none"}
+    first = dates[0]
+    ever = sum(1 for q in qs if q["status"] == "waived" or q.get("superseded_waiver"))
+    if first > today:
+        c = sme_counts(qs)
+        return {"state": "upcoming", "first_due": first, "waived": c["waived"], "ever_waived": ever, "counts": c}
+    snap = next((x for x in sme_history(root) if x["date"] >= first), None)
+    if not snap:
+        return {"state": "not-recorded", "first_due": first, "ever_waived": ever}
+    return {"state": "recorded", "first_due": first, "snapshot_date": snap["date"], "waived": snap["waived"],
+            "open": snap["open"], "answered": snap["answered"], "ever_waived": ever, "counts": snap}
+
+
 def context_legacy_tables(root, model, mapping):
     """Legacy tables a context draws from: its legacy domains plus every mapped source table."""
     dom_of = legacy_table_domains(root)
@@ -394,12 +473,16 @@ def today_iso():
 def waiver_overview(root, today=None):
     """Exceptions to the business gate, as they stand today.
 
-    waivers:   questions still waived, with review date, overdue flag and the accepted
-               contexts that went through on them
+    waivers:   questions still waived, with review date, overdue / due-soon flags, renewal count
+               against the limit (v1.4) and the accepted contexts that went through on them
     followups: questions the business has since answered whose waiver ADR is still in force
                (it should be superseded or rejected so the exception doesn't live on)
     """
+    import datetime
     today = today or today_iso()
+    bg = gate_settings(root)
+    maxr, senior = int(bg["max_waiver_renewals"]), bg["renewal_roles_after_limit"]
+    soon = (datetime.date.fromisoformat(today) + datetime.timedelta(days=int(bg["waiver_due_soon_days"]))).isoformat()
     qs = load_sme(root)["questions"]
     adrs = {it["id"]: it for it in load_json(mem(root, "decisions", "index.json"), default={"items": []})["items"]}
     ctx_tables = {}
@@ -413,8 +496,14 @@ def waiver_overview(root, today=None):
             qt = set(q.get("tables") or [])
             ctxs = sorted(c for c, t in ctx_tables.items() if not qt or (qt & t))
             rb = q.get("review_by")
+            revs = q.get("reviews") or []
+            past = [r for r in revs[maxr:] if review_role(r) not in senior]
             waivers.append({"id": q["id"], "question": q["question"], "adr": q.get("adr"), "review_by": rb,
                             "overdue": bool(rb) and rb < today, "missing_review_date": not rb,
+                            "due_soon": bool(rb) and today <= rb <= soon,
+                            "renewals": len(revs), "max_renewals": maxr, "at_limit": len(revs) >= maxr,
+                            "renewed_past_limit_without_senior": [r.get("by") for r in past],
+                            "first_review_by": first_review_date(q),
                             "contexts": ctxs, "waived_by": q.get("answered_by")})
         sw = q.get("superseded_waiver")
         if q["status"] == "answered" and sw and adrs.get(sw.get("adr"), {}).get("status") not in ("superseded", "rejected"):

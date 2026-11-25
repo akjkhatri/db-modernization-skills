@@ -152,12 +152,45 @@ p, qid, day = sys.argv[1:]
 s = json.load(open(p))
 for q in s["questions"]:
     if q["id"] == qid:
-        q["review_by"] = day          # simulate time passing: the review date is now in the past
+        q["review_by"] = q["first_review_by"] = day   # simulate time passing: the review date is now in the past
 json.dump(s, open(p, "w"), indent=2)
 EOF
 expect_blocked python3 $MEM/memory_validate.py $R   # overdue waiver fails validation (and CI)
-python3 $LA/review.py $R sme review $FIRST --review-by $IN30 --by "Fiona Finance:data-owner" --note "Finance still reconciling 2019 archive"
+python3 $LA/review.py $R sme review $FIRST --review-by $IN30 --by "Olu Orders:product-owner" --note "Finance still reconciling 2019 archive"
 python3 $MEM/memory_validate.py $R | tail -1
+echo "== v1.4 renewals: limit 2, then only a data owner may renew"
+IN60=$(python3 -c "import datetime; print(datetime.date.today() + datetime.timedelta(days=60))")
+python3 $LA/review.py $R sme review $FIRST --review-by $IN60 --by "Olu Orders:product-owner" --note "Still waiting on finance"
+expect_blocked python3 $LA/review.py $R sme review $FIRST --review-by $IN60 --by "Olu Orders:product-owner" --note "Third push"   # past the limit
+python3 $LA/review.py $R sme review $FIRST --review-by $IN60 --by "Fiona Finance:data-owner" --note "Signed off one more cycle: archive decision at Q1 board"
+python3 $LA/review.py $R sme list | grep "$FIRST"
+python3 $MEM/memory_validate.py $R | grep -E "renewed|error"
+python3 - "$SMEF" "$FIRST" <<'EOF'
+import json, sys
+p, qid = sys.argv[1:]
+s = json.load(open(p))
+q = next(q for q in s["questions"] if q["id"] == qid)
+q["reviews"][-1]["by"], q["reviews"][-1]["role"] = "Olu Orders (product-owner)", "product-owner"   # hand-edited to dodge the limit
+json.dump(s, open(p, "w"), indent=2)
+EOF
+expect_blocked python3 $MEM/memory_validate.py $R   # a hand-edited renewal past the limit is caught
+python3 - "$SMEF" "$FIRST" <<'EOF'
+import json, sys
+p, qid = sys.argv[1:]
+s = json.load(open(p))
+q = next(q for q in s["questions"] if q["id"] == qid)
+q["reviews"][-1]["by"], q["reviews"][-1]["role"] = "Fiona Finance (data-owner)", "data-owner"   # put it back
+json.dump(s, open(p, "w"), indent=2)
+EOF
+echo "== v1.4 trend and business involvement (earlier snapshots simulated)"
+python3 - "$W/app/.dbmod/legacy/sme_history.json" <<'EOF'
+import json, sys, datetime
+p = sys.argv[1]; h = json.load(open(p)); today = datetime.date.today()
+old = [{"date": str(today - datetime.timedelta(days=n)), "open": o, "answered": a, "waived": w, "resolved-by-review": 0, "total": 14}
+       for n, o, a, w in ((21, 14, 0, 0), (14, 8, 5, 1), (7, 3, 10, 1))]
+h["snapshots"] = old + h["snapshots"]; json.dump(h, open(p, "w"), indent=2)
+EOF
+python3 $MEM/memory_status.py $R | sed -n '/## Business gate/,/## Decisions/p' | sed '$d'
 python3 $LA/review.py $R sme answer $FIRST "Archive is read-only; migrate as history" --by "Fiona Finance:data-owner"
 python3 $MEM/memory_status.py $R | grep -A2 "ADR follow-ups"
 python3 $MEM/memory_record.py $R status ADR-0003 superseded --note "$FIRST answered by the business" >/dev/null

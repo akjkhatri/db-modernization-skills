@@ -61,7 +61,91 @@ PY2
 python3 "$PKG/domain-modernization/scripts/generate_data_migration.py" --root "$W/app" --context billing >/dev/null
 $PSQL -d app -c "TRUNCATE billing.payment, billing.invoice_line, billing.invoice; DROP TABLE migration_map.billing__invoice, migration_map.billing__invoice_line, migration_map.billing__payment"
 run_ctx "$LATEST" | tee /tmp/dbmod-drift.log | grep -E "check_type|---|line_amount"
-for want in "MISMATCH \\(conversion changes the total\\)" "money per row +\\| invoice_line\\.line_amount +\\|.*\\| +1 \\| +0\\.02 \\| MISMATCH" "money per parent +\\| invoice_line\\.line_amount +\\|.*\\| +1 \\| +0\\.02 \\| MISMATCH"; do
+for want in "MISMATCH \\(conversion changes the total\\)" "money per row +\\| invoice_line\\.line_amount +\\|.*\\| +1 \\| +0\\.02 \\| +0 \\| MISMATCH" "money per parent +\\| invoice_line\\.line_amount +\\|.*\\| +1 \\| +0\\.02 \\| +0 \\| MISMATCH"; do
   grep -qE "$want" /tmp/dbmod-drift.log || { echo "FAIL: drift not detected ($want)"; $AS "$PGBIN/pg_ctl -D $DATA stop -m fast" >/dev/null; exit 1; }; done
 echo "  -> drift detected as expected: total, the row (legacy key 5002|1) and its invoice (5002)"
+
+# ---------------------------------------------------------------- v1.5: money correctness and finance rulings
+GEN="python3 $PKG/domain-modernization/scripts/generate_data_migration.py --root $W/app --context"
+RUL="python3 $PKG/domain-modernization/scripts/reconcile_ruling.py --root $W/app"
+MAP="$W/app/.dbmod/mapping/billing.json"
+reload_billing(){ $GEN billing >/dev/null; $PSQL -d app -c "TRUNCATE billing.payment, billing.invoice_line, billing.invoice; DROP TABLE migration_map.billing__invoice, migration_map.billing__invoice_line, migration_map.billing__payment"; run_ctx "$LATEST" > "$1"; }
+rec_only(){ $GEN "$1" >/dev/null; $PSQL -d app -f "$2/04_reconcile.sql" > "$3"; }
+expect(){ grep -qE "$2" "$1" || { echo "FAIL: $3"; grep -E "check_type|$4" "$1"; $AS "$PGBIN/pg_ctl -D $DATA stop -m fast" >/dev/null; exit 1; }; echo "  -> $3"; }
+refused(){ if "$@" > /tmp/dbmod-refused.log 2>&1; then echo "FAIL: expected a refusal"; cat /tmp/dbmod-refused.log; exit 1; fi; sed 's/^/     /' /tmp/dbmod-refused.log | head -2; }
+python3 $PKG/schema-memory/scripts/memory_record.py --root $W/app new ADR --title "Reconcile rulings: finance decides which value is correct" --contexts billing,customer --status accepted | tail -1
+ADR=$(python3 -c "import json;print(json.load(open('$W/app/.dbmod/decisions/index.json'))['items'][-1]['id'])")
+
+echo "== v1.5 (1) finance rules the 67.10 row: the legacy 67.08 is right, so the migration must be fixed"
+$RUL add --context billing --check "money per row" --target invoice_line.line_amount --key "5002|1" --decision legacy-correct \
+  --period 2023-02 --period-status open --adr $ADR --by "Fiona Finance:data-owner" --note "Invoice was issued at 67.08"
+rec_only billing "$LATEST" /tmp/v15-1.log
+expect /tmp/v15-1.log "money per row +\| invoice_line\.line_amount .*MISMATCH .*1 ruled: fix the migration" "still MISMATCH, with the ruling to fix the migration" line_amount
+
+echo "== v1.5 (2) unit change: legacy line amounts in pence, target in pounds"
+$PSQL -d legacy -c "UPDATE inv_dtl SET amt = amt * 100"
+python3 - "$MAP" <<'EOF'
+import json,sys; p=sys.argv[1]; m=json.load(open(p))
+for cm in m["column_mappings"]:
+    if cm["target"] == "billing.invoice_line.line_amount": cm.update(rule="transform", transform="inv_dtl.amt / 100.0")
+json.dump(m,open(p,"w"),indent=1)
+EOF
+reload_billing /tmp/v15-2a.log
+expect /tmp/v15-2a.log "money per row +\| invoice_line\.line_amount .*\| +3 \| +6640\.92 \| +0 \| MISMATCH" "without reconcile_raw every row looks wrong (raw pence vs pounds)" line_amount
+python3 - "$MAP" <<'EOF'
+import json,sys; p=sys.argv[1]; m=json.load(open(p))
+for cm in m["column_mappings"]:
+    if cm["target"] == "billing.invoice_line.line_amount": cm["reconcile_raw"] = "inv_dtl.amt / 100.0"
+json.dump(m,open(p,"w"),indent=1)
+EOF
+rec_only billing "$LATEST" /tmp/v15-2b.log
+expect /tmp/v15-2b.log "money per row +\| invoice_line\.line_amount .*\| +0 \| +\| +0 \| OK .*expected legacy value \(reconcile_raw\)" "with reconcile_raw the known conversion passes; a real error would still show" line_amount
+expect /tmp/v15-2b.log "money total +\| invoice_line\.line_amount +\| +167\.08" "raw column shows the expected 167.08 next to converted and target" line_amount
+
+echo "== v1.5 (3) invariant: invoice net = sum of its lines; legacy itself disagrees on invoice 5002 (67.08 vs 67.00)"
+$PSQL -d legacy -c "UPDATE inv_dtl SET amt = 6700 WHERE inv_no = 5002 AND line_no = 1"
+python3 - "$MAP" <<'EOF'
+import json,sys; p=sys.argv[1]; m=json.load(open(p))
+m["reconcile_invariants"] = [{"kind": "sum_of_children", "name": "invoice net = sum of lines",
+                              "parent": "invoice.net_amount", "child": "invoice_line.line_amount", "fk": "invoice_id"},
+                             {"kind": "sql", "name": "net = lines (sql form)",
+                              "left": "SELECT invoice_id::text, net_amount FROM billing.invoice",
+                              "right": "SELECT invoice_id::text, sum(line_amount) FROM billing.invoice_line GROUP BY 1"}]
+json.dump(m,open(p,"w"),indent=1)
+EOF
+reload_billing /tmp/v15-3a.log
+expect /tmp/v15-3a.log "money per row +\| invoice_line\.line_amount .*\| +0 \| +\| +0 \| OK" "every row migrated faithfully" line_amount
+expect /tmp/v15-3a.log "invariant +\| invoice net = sum of lines .*\| +1 \| +0\.08 \| +0 \| MISMATCH .*legacy already had this" "but the invariant fails: legacy was inconsistent" invariant
+expect /tmp/v15-3a.log "invariant +\| net = lines \(sql form\) .*\| +1 \| +0\.08 \| +0 \| MISMATCH" "the same rule written as SQL agrees" invariant
+K=$($PSQL -d app -At -c "SELECT new_id FROM migration_map.billing__invoice WHERE legacy_key = '5002'")
+echo "   refused: closed period without disclosure, and a ruling by someone who is not a data owner:"
+refused $RUL add --context billing --check invariant --target "invoice net = sum of lines" --key "$K" --decision new-correct \
+  --period FY2023 --period-status closed --adr $ADR --by "Fiona Finance:data-owner" --note "Header is the invoiced amount"
+refused $RUL add --context billing --check invariant --target "invoice net = sum of lines" --key "$K" --decision new-correct \
+  --period FY2023 --period-status closed --disclosure "x" --adr $ADR --by "Dev Lead:architect" --note "Header is the invoiced amount"
+$RUL add --context billing --check invariant --target "invoice net = sum of lines" --key "$K" --decision new-correct \
+  --period FY2023 --period-status closed --disclosure "Line total disclosed in the migration report; no restatement of FY2023" \
+  --adr $ADR --by "Fiona Finance:data-owner" --note "Header is what the customer was invoiced"
+rec_only billing "$LATEST" /tmp/v15-3b.log
+expect /tmp/v15-3b.log "invariant +\| invoice net = sum of lines .*\| +0 \| +\| +1 \| OK \(1 ruled by finance\)" "after finance's ruling (FY2023, closed, disclosed): OK, 1 ruled" invariant
+
+echo "== v1.5 (4) legacy NULL credit limit became 0 in the customer context"
+CUST="$W/app/db/data-migration/customer/v001"
+rec_only customer "$CUST" /tmp/v15-4a.log
+expect /tmp/v15-4a.log "money nulls +\| customer\.credit_limit_amount .*\| +1 \| .*REVIEW" "flagged for review (legacy key 2)" credit_limit
+$RUL add --context customer --check "money nulls" --target customer.credit_limit_amount --key 2 --decision new-correct \
+  --period 2026-11 --period-status open --adr $ADR --by "Fiona Finance:data-owner" --note "No limit recorded means no credit: 0 is right"
+rec_only customer "$CUST" /tmp/v15-4b.log
+expect /tmp/v15-4b.log "money nulls +\| customer\.credit_limit_amount .*OK \(1 ruled by finance\)" "after the ruling: OK, 1 ruled" credit_limit
+grep -A6 "## Finance rulings" "$CUST/05_signoff.md" | tail -1 | sed 's/^/   05_signoff.md: /'
+
+echo "== v1.5 (5) rounding agreed with finance: half-even (banker's) vs half-up"
+python3 - "$W/app/.dbmod/standards.json" <<'EOF'
+import json,sys; p=sys.argv[1]; s=json.load(open(p)); s["data_migration"]["reconcile"]["rounding"] = "half-even"; json.dump(s,open(p,"w"),indent=2)
+EOF
+$GEN billing >/dev/null; $PSQL -d app -f "$LATEST/00_prerequisites.sql" >/dev/null 2>&1
+$PSQL -d app -At -c "SELECT 'half-even: 2.345->' || migration_map.round_money(2.345, 2) || '  2.355->' || migration_map.round_money(2.355, 2) || '  -2.345->' || migration_map.round_money(-2.345, 2) || '   half-up (round): 2.345->' || round(2.345, 2)" | tee /tmp/v15-5.log
+expect /tmp/v15-5.log "half-even: 2\.345->2\.34 .*2\.355->2\.36 .*-2\.345->-2\.34 .*half-up \(round\): 2\.345->2\.35" "banker's rounding available for transforms and used by reconcile" x
+grep -m1 "SET TIME ZONE" "$LATEST/04_reconcile.sql" | sed 's/^/   04_reconcile.sql: /'
+echo "== v1.5 all checks passed"
 $AS "$PGBIN/pg_ctl -D $DATA stop -m fast" >/dev/null

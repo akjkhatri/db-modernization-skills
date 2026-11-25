@@ -209,7 +209,7 @@ def main():
         if (x["kind"], x["ref"]) not in live and x["status"] == "open":
             x["status"] = "resolved-by-review"
             x["note"] = "the underlying item was settled through review.py (relationship, finding or glossary term)"
-    d.save_json(d.sme_path(root), sme)
+    d.save_sme(root, sme)
     q_open = [x for x in sme["questions"] if x["status"] == "open"]
     q_done = [x for x in sme["questions"] if x["status"] != "open"]
 

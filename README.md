@@ -19,6 +19,24 @@ These skills give Claude (and the team) a **persistent memory of the modernisati
 - nothing is written to `db/migration` until the **right people approve**: an architect, plus the data owner when the model holds money or personal data
 - **coverage** (the share of legacy columns mapped or deliberately retired) shows real progress
 - migrated money is **reconciled to the penny** against the raw legacy values, row by row, and the data owner signs it off
+## What's new in v1.5
+
+Money that matches isn't always right, and a difference isn't always the migration's fault. Two readers' comments shaped this release: totals can hide errors that cancel out, and sometimes the legacy number was the wrong one all along.
+
+- **Finance rules on differences.** `reconcile_ruling.py` records which value is correct (legacy or migrated), who decided, the ADR, and the reporting period. In a closed period the reported figure isn't restated, so accepting a difference needs a disclosure. Accepted differences stop failing on re-runs; rulings that the migration is wrong keep the check red until it's fixed.
+- **Deliberate conversions.** `reconcile_raw` on a column mapping says what the legacy value should become (pence to pounds, FX), so a known conversion isn't reported as a mismatch.
+- **Checks across tables.** `reconcile_invariants`: invoice net = sum of lines, debits = credits, balance rolls forward. If every row matches but an invariant fails, legacy already had the inconsistency.
+- **Per currency, rounding and time zone.** Totals per currency at each currency's decimal places (JPY 0, KWD 3), the rounding finance agreed (half-up, banker's half-even, truncate) and month-ends in the business's time zone.
+- **NULLs that became values.** A legacy NULL loaded as 0 is flagged for review, not hidden.
+- More money names are recognised (principal, interest, premium, limit …), and tables loaded by a custom query are reconciled too.
+
+## What's new in v1.4
+
+A reader asked how many waivers are still open when the first ones come due. That number shows how involved the business really is, so the skill now reports it.
+
+- **Renewal limit.** Each waiver review counts as a renewal. After two (configurable), only a data owner can renew again, so a waiver can't be pushed back every 90 days without an answer.
+- **Business involvement.** `memory_status.py` shows renewals per waiver, waivers due in the next 14 days, how many waivers were still open when the first one came due, and an answered-vs-open trend over time.
+
 ## What's new in v1.3
 
 Reconciliation now checks the money to the penny, not just the totals. This came from a reader who has been through migrations where the totals matched but individual accounts were a few pence out.
@@ -136,7 +154,9 @@ Both run in GitHub Actions on every push. All fixtures are synthetic.
 | Approvals | architect always; data owner for money and personal/financial data; security for credentials and special-category data; one person per role | standards → approvals |
 | Business gate | legacy domains confirmed and SME questions answered (or waived under an accepted ADR) before acceptance | standards → business_gate |
 | Waivers | review date on every waiver (default 90 days); overdue waivers fail validation and block acceptance | standards → business_gate.waiver_review_days |
-| Reconcile | money compared to 2 dp: raw vs converted vs target totals, per row via the id maps, per parent and per month; data owner signs `05_signoff.md` | standards → data_migration.reconcile |
+| Reconcile | money compared to 2 dp (or per currency): raw vs converted vs target totals, per row via the id maps, per parent, month and currency, NULLs that became values, invariants across tables; data owner signs `05_signoff.md` | standards → data_migration.reconcile; mapping → reconcile_raw, reconcile_invariants |
+| Finance rulings | finance decides which value is correct per difference, for a reporting period; closed periods need a disclosure | `reconcile_ruling.py`, standards → reconcile.ruling_roles |
+| Waiver renewals | each review is a renewal; past 2, only a data owner renews; involvement and trend in the status report | standards → business_gate.max_waiver_renewals |
 | Data migration | one-off ETL via postgres_fdw, id-map tables kept as audit trail | standards → data_migration |
 
 Edit `.dbmod/standards.json` in your repo to change these, and record the reason in an ADR.
@@ -146,7 +166,8 @@ Edit `.dbmod/standards.json` in your repo to change these, and record the reason
 schema-memory/          SKILL.md, scripts/ (init, status, query, record, validate), references/memory-spec.md, templates/
 legacy-assessment/      SKILL.md, scripts/ (ingest, analyze, domains, erd, report, review), references/
 domain-modernization/   SKILL.md, scripts/ (context_tool, model_lint, lineage_check, check_conflicts,
-                        generate_migration, accept_model, generate_data_migration, render_erd), references/ (+ examples/)
+                        generate_migration, accept_model, generate_data_migration, reconcile_ruling, render_erd),
+                        references/ (+ examples/)
 tests/                  synthetic legacy fixtures, run_e2e.sh (all scripts), run_pg_test.sh (live PostgreSQL)
 tools/sync_common.py    keeps the shared _dbmod.py identical in all three skills
 ```

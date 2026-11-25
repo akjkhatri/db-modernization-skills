@@ -18,7 +18,9 @@
                                                             proceed without an answer, justified by an ADR,
                                                             until a review date (default: business_gate.waiver_review_days)
   sme review <SQ-0001> --review-by YYYY-MM-DD --by "Name:role" --note "..."
-                                                            someone re-checked a waiver: record it and set the next date
+                                                            someone re-checked a waiver: record it and set the next date.
+                                                            Each review is a renewal; after business_gate.max_waiver_renewals
+                                                            (default 2) only renewal_roles_after_limit (default data-owner) may renew
 
 After changing relationships, re-run discover_domains.py (confirmed domains are kept) and
 build_report.py.
@@ -159,7 +161,7 @@ def check_date(text):
 
 def default_review_date(root):
     import datetime
-    days = int((d.load_standards(root).get("business_gate") or {}).get("waiver_review_days", 90))
+    days = int(d.gate_settings(root)["waiver_review_days"])
     return (datetime.date.fromisoformat(d.today_iso()) + datetime.timedelta(days=days)).isoformat()
 
 
@@ -168,6 +170,8 @@ def sme_cmd(root, a):
     qs = sme["questions"]
     if not qs:
         d.die("no SME questions yet: run build_report.py first")
+    bg = d.gate_settings(root)
+    maxr, senior = int(bg["max_waiver_renewals"]), bg["renewal_roles_after_limit"]
     if a.action == "list":
         rows = [x for x in qs if (not a.open or x["status"] == "open") and (not a.domain or x.get("domain") == a.domain)]
         for x in rows:
@@ -175,7 +179,9 @@ def sme_cmd(root, a):
             if x["status"] == "waived":
                 rb = x.get("review_by") or "no review date"
                 late = " OVERDUE" if x.get("review_by") and x["review_by"] < d.today_iso() else ""
-                extra = f" (waived: {x.get('adr')}, review by {rb}{late})"
+                n = len(x.get("reviews") or [])
+                extra = (f" (waived: {x.get('adr')}, review by {rb}{late}, renewed {n}/{maxr}"
+                         + (", next renewal needs " + " or ".join(senior) if n >= maxr else "") + ")")
             else:
                 extra = f" -> {x['answer']}" if x.get("answer") else ""
             print(f"{x['id']}  {x['status']:<18} [{scope}] {x['question']}{extra}")
@@ -196,10 +202,20 @@ def sme_cmd(root, a):
             d.die('sme review needs --review-by YYYY-MM-DD and --note "what was checked" '
                   '(if the business has answered, use sme answer instead)')
         rb = check_date(a.review_by)
-        x.setdefault("reviews", []).append({"at": d.now_iso(), "by": f"{name} ({role or 'role not given'})",
-                                            "note": a.note, "previous_review_by": x.get("review_by")})
+        n = len(x.get("reviews") or [])
+        if n >= maxr and role not in senior:
+            d.die(f"{x['id']} has already been renewed {n} time(s); the limit is {maxr} "
+                  f"(standards.json business_gate.max_waiver_renewals). A further renewal needs "
+                  f"{' or '.join(senior)} (--by \"Name:{senior[0]}\"). Better: get the business's answer with sme answer")
+        x.setdefault("first_review_by", d.first_review_date(x))
+        x.setdefault("reviews", []).append({"at": d.now_iso(), "by": f"{name} ({role or 'role not given'})", "role": role,
+                                            "note": a.note, "previous_review_by": x.get("review_by"),
+                                            "renewal": n + 1, "past_limit": n + 1 > maxr})
         x["review_by"] = rb
-        msg = f"{x['id']} waiver reviewed by {name}, next review by {rb}"
+        msg = (f"{x['id']} waiver renewed by {name} ({n + 1}/{maxr}"
+               + (", past the limit: senior sign-off recorded" if n + 1 > maxr else "") + f"), next review by {rb}")
+        if n + 1 == maxr:
+            msg += f". Renewal limit reached: the next one needs {' or '.join(senior)}"
     elif a.action == "answer":
         if not a.text:
             d.die("sme answer needs the answer text")
@@ -209,8 +225,9 @@ def sme_cmd(root, a):
         msg = f"{x['id']} answered by {name}"
         if was:
             x["superseded_waiver"] = {"adr": was.get("adr"), "review_by": was.get("review_by"),
+                                      "first_review_by": d.first_review_date(was), "renewals": len(was.get("reviews") or []),
                                       "waived_by": was.get("answered_by"), "waived_at": was.get("answered_at")}
-            for k in ("adr", "review_by"):
+            for k in ("adr", "review_by", "first_review_by"):
                 x.pop(k, None)
             msg += (f"; it replaces the waiver under {was.get('adr')}. Follow-up: supersede or reject that ADR "
                     f"(memory_record.py status {was.get('adr')} superseded --note \"{x['id']} answered\") "
@@ -223,9 +240,9 @@ def sme_cmd(root, a):
             d.die(f"{a.adr} not found: record it first with memory_record.py new ADR")
         rb = check_date(a.review_by) if a.review_by else default_review_date(root)
         x.update({"status": "waived", "adr": a.adr.upper(), "answered_by": f"{name} ({role or 'role not given'})",
-                  "answered_role": role, "answered_at": d.now_iso(), "review_by": rb, "reviews": []})
+                  "answered_role": role, "answered_at": d.now_iso(), "review_by": rb, "first_review_by": rb, "reviews": []})
         msg = f"{x['id']} waived under {a.adr.upper()} by {name}, review by {rb}"
-    d.save_json(d.sme_path(root), sme)
+    d.save_sme(root, sme)
     d.journal(root, "legacy-assessment", "review-sme", msg, question=x["question"], answer=x.get("answer"))
     print(msg)
 

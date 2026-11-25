@@ -104,6 +104,21 @@ Path: `.dbmod/target/contexts/<ctx>/model.json`. Create it with `context_tool.py
 - `legacy_key` defaults to the driving table's PK. It is needed when the legacy table has no PK, or when the grain differs.
 - Every legacy column in the context's legacy domains must end up either mapped or `retired` with a reason. That is what coverage measures.
 
+**Reconcile extras** (v1.5)
+- `"reconcile_raw"` on a column mapping: SQL over legacy columns for the value the target SHOULD hold, when the conversion is deliberate (pence to pounds: `"inv_dtl.amt_pence / 100.0"`; FX: `"pymt.amt * pymt.fx_rate"`). Reconcile compares that, not the raw column, so a known conversion is not reported as a mismatch while a real error still is.
+- `"reconcile_invariants"` at the top of the mapping: totals that must agree inside the target.
+  ```json
+  "reconcile_invariants": [
+    {"kind": "sum_of_children", "name": "invoice net = sum of lines", "parent": "invoice.net_amount", "child": "invoice_line.line_amount", "fk": "invoice_id"},
+    {"kind": "sql", "name": "journal balances", "left": "SELECT journal_id::text, sum(amount) FILTER (WHERE side = 'D') FROM ledger.entry GROUP BY 1",
+     "right": "SELECT journal_id::text, sum(amount) FILTER (WHERE side = 'C') FROM ledger.entry GROUP BY 1"},
+    {"kind": "sql", "name": "balance rolls forward", "left": "SELECT account_id::text, closing_balance FROM ledger.account",
+     "right": "SELECT a.account_id::text, a.opening_balance + coalesce(sum(t.amount), 0) FROM ledger.account a LEFT JOIN ledger.txn t USING (account_id) GROUP BY a.account_id, a.opening_balance"}
+  ]
+  ```
+  Each `sql` side returns `(key, value)`; keys on one side only count as differences. Optional `"scale"` (decimal places).
+- `"money": true|false` on a model column overrides money detection by name (names like amount, principal, interest, premium, limit, fee, balance are detected).
+
 **Repeating groups / unpivots** (in the customer context's own mapping): `custom_select` replaces the generated SELECT and must return `custom_columns` in order:
 ```json
 {"target": "customer.customer_phone", "sources": ["public.cust_mst"], "grain": "one row per non-empty phone1..3",
