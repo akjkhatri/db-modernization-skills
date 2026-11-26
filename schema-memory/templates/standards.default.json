@@ -1,6 +1,6 @@
 {
   "_about": "Target-schema design standards enforced by domain-modernization/scripts/model_lint.py. Copied into .dbmod/standards.json at init; edit that copy, record why in an ADR.",
-  "version": "1.5",
+  "version": "1.6",
   "engine": "postgresql",
   "engine_min_version": "15",
   "naming": {
@@ -97,6 +97,14 @@
     "required_roles_when_pii": {"personal": ["data-owner"], "special_category": ["data-owner", "security"], "financial": ["data-owner"], "credential": ["security"]},
     "required_roles_when_money": ["data-owner"],
     "distinct_people": true
+  },
+  "profiling": {
+    "_about": "profile_data.py: what counts as a placeholder date, when a column is 'mostly empty', how many top values and examples to keep, and the decimals money normally has.",
+    "placeholder_dates": ["1900-01-01", "1899-12-30", "1753-01-01", "0001-01-01", "1970-01-01", "9999-12-31", "9999-01-01", "2099-12-31", "3000-01-01"],
+    "mostly_null_percent": 95,
+    "max_values": 20,
+    "examples": 5,
+    "money_decimals": 2
   },
   "business_gate": {
     "_about": "The business confirms what the legacy system actually does before a design is accepted. SME questions live in .dbmod/legacy/sme_questions.json (built by build_report.py, answered with review.py sme).",

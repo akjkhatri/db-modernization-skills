@@ -148,5 +148,6 @@ Remind them to commit `.dbmod/` and `db/` together in one PR.
 ## Judgement notes
 - **The requirement drives the design.** Legacy shows what data exists and what went wrong, not how the new schema should look. Don't copy legacy column lists.
 - **Prefer additive evolution.** Use nullable columns or defaults, `renamed_from`, and new enum values. Destructive changes need an ADR and expand/contract planning.
+- **Use the data profile.** Before mapping a legacy table, check its `DP-` findings (`.dbmod/legacy/profile.json`, report section 12): placeholder dates become NULL, case variants are normalised, orphans get a `filter` and an ADR, extra decimals follow finance's rounding rule. If the table was never profiled, say so: precheck will find the same problems later, but after the model is designed.
 - **Keep transforms honest.** If a transform guesses (e.g. "due date = issue + 30 when missing"), say so in `notes`, and in the REQ's open questions if the business hasn't confirmed it.
 - **Large legacy estates:** work one legacy domain at a time with `memory_query.py`. Never load `catalog.json` whole.

@@ -70,8 +70,24 @@ Detection is based on column-name patterns for these classes:
 
 It does not see free-text columns that contain PII (notes, comments). Raise those as SME questions.
 
+## Data rules (LA-DAT, from profile_data.py)
+These come from profiling the data, not the catalog. Findings are `DP-0001`… in `.dbmod/legacy/profile.json`.
+
+| rule | severity | what | SME question |
+|---|---|---|---|
+| LA-DAT-001 | high | orphan rows: child key values with no parent (declared or inferred relationship) | fix at source, placeholder parent, or archive? |
+| LA-DAT-002 | high / medium | duplicate values of a key other tables rely on; exact duplicate rows in a table with no primary key | which row is real, or genuine repeats? |
+| LA-DAT-003 | medium | placeholder dates (`profiling.placeholder_dates`, also as text like 19000101) | unknown, not applicable, or open-ended? |
+| LA-DAT-004 | medium | code values that differ only by case or spaces (gbp / GBP) | the same code? |
+| LA-DAT-005 | low | leading or trailing spaces | none: trim in the transform |
+| LA-DAT-006 | medium | text dates that don't parse (columns named *_dt, *date*) | what should they become? |
+| LA-DAT-007 | medium / low | mostly NULL (≥ `profiling.mostly_null_percent`) / always NULL | one question per table: still used? |
+| LA-DAT-008 | medium | amounts with more decimals than `profiling.money_decimals` | which rounding rule does finance use? |
+| LA-DAT-009 | low | both NULL and empty string used | do they mean the same? |
+| LA-DAT-010 | low | empty table | none: listed as a retirement candidate |
+
 ## Profiling queries
-Suggest these to the DBA. They are read-only and run against the legacy database.
+`profile_data.py plan` generates all of these. The hand-written versions below are for a quick look or another database. They are read-only and run against the legacy database.
 ```sql
 -- orphan rows behind an inferred relationship
 SELECT count(*) FROM legacy.child c LEFT JOIN legacy.parent p ON p.pk = c.fk WHERE c.fk IS NOT NULL AND p.pk IS NULL;

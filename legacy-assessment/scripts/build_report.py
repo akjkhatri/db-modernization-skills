@@ -39,6 +39,13 @@ def block(name, kept):
     return f"<!-- BEGIN:{name} -->\n{kept.get(name, NARRATIVE[name])}\n<!-- END:{name} -->"
 
 
+RULE_TEXT = {"LA-DAT-001": "orphan rows (parent missing)", "LA-DAT-002": "duplicate keys or rows",
+             "LA-DAT-003": "placeholder dates", "LA-DAT-004": "codes differing by case/spaces",
+             "LA-DAT-005": "leading/trailing spaces", "LA-DAT-006": "text dates that don't parse",
+             "LA-DAT-007": "mostly or always NULL", "LA-DAT-008": "amounts with extra decimals",
+             "LA-DAT-009": "NULL and empty string both used", "LA-DAT-010": "empty tables"}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root")
@@ -57,6 +64,8 @@ def main():
     kept = keep_blocks(open(rpath, encoding="utf-8").read()) if os.path.exists(rpath) else {}
     fs = [f for f in F["findings"] if f.get("status") != "not-detected"]
     s = F["summary"]
+    PROF = d.load_json(d.mem(root, "legacy", "profile.json"), default={}) or None
+    pfs = [f for f in (PROF or {}).get("findings", []) if f.get("status") != "not-detected"]
     dom_of = d.legacy_table_domains(root)
 
     L = [f"# Legacy database assessment: {man['project']}", "",
@@ -143,6 +152,9 @@ def main():
     for f in fs:
         if f["rule"] in ("LA-STR-007", "LA-STR-010", "LA-KEY-005"):
             retire.setdefault(f["object"], []).append(f["message"])
+    for f in pfs:   # from the data profile: empty tables and columns that are always NULL
+        if f["rule"] == "LA-DAT-010" or (f["rule"] == "LA-DAT-007" and f["message"] == "always NULL"):
+            retire.setdefault(f["object"], []).append(f"data profile: {f['message']} ({f['id']})")
     L += ["## 8. Retirement candidates", "",
           d.md_table(["object", "why"], [[o, "; ".join(w)] for o, w in retire.items()]) if retire else "_none_", ""]
 
@@ -180,6 +192,31 @@ def main():
             gen.append(("finding", f["id"], tbl(f["object"]), f"Is `{f['object']}` still needed, or can it be retired?"))
         elif f["rule"] == "LA-STR-003":
             gen.append(("finding", f["id"], tbl(f["object"]), f"Which entity types can `{f['object']}` link to?"))
+    # data-profile findings (profile_data.py): facts about the data the business has to decide on
+    nulls_by_table = {}
+    for f in pfs:
+        if f.get("status", "open") != "open":
+            continue
+        o, ev, r = f["object"], f["evidence"], f["rule"]
+        if r == "LA-DAT-001":
+            gen.append(("profile", f["id"], tbl(o), f"`{o}`: {f['message']} ({ev}). Fix them at source, migrate them under a placeholder parent, or archive them?"))
+        elif r == "LA-DAT-002":
+            gen.append(("profile", f["id"], tbl(o), f"`{o}`: {f['message']} ({ev}). Which row is the real one, or are they genuine repeats?"))
+        elif r == "LA-DAT-003":
+            gen.append(("profile", f["id"], tbl(o), f"What do the placeholder dates in `{o}` mean ({ev})? Unknown, not applicable, or open-ended?"))
+        elif r == "LA-DAT-004":
+            gen.append(("profile", f["id"], tbl(o), f"Are these values of `{o}` the same code: {ev}?"))
+        elif r == "LA-DAT-006":
+            gen.append(("profile", f["id"], tbl(o), f"`{o}`: {f['message']} ({ev}). What should they become in the new system?"))
+        elif r == "LA-DAT-008":
+            gen.append(("profile", f["id"], tbl(o), f"`{o}` has {f['message'].split(' ', 1)[1]} ({ev}). Which rounding rule does finance use?"))
+        elif r == "LA-DAT-009":
+            gen.append(("profile", f["id"], tbl(o), f"In `{o}`, do NULL and an empty string mean the same thing?"))
+        elif r == "LA-DAT-007":
+            nulls_by_table.setdefault(".".join(o.split(".")[:2]), []).append(f)
+    for t_, lst in sorted(nulls_by_table.items()):
+        cols = ", ".join(f"{x['object'].split('.')[-1]} ({x['message']})" for x in lst)
+        gen.append(("profile", f"nulls:{t_}", [t_], f"Are these columns of `{t_}` still used? {cols}"))
     for k in unknown:
         gen.append(("term", k, term_tables(k), f"What does the abbreviation `{k}` mean?"))
     gen.append(("global", "timezone", [], "Which time zone are legacy `timestamp without time zone` values in?"))
@@ -233,13 +270,30 @@ def main():
           "A context cannot be accepted while questions on its legacy tables are open (business gate).", ""] + \
          [q_line(x) for x in q_open + q_done] + [""]
 
+    if PROF:
+        ps = PROF["summary"]
+        hm = [f for f in pfs if f["severity"] in ("critical", "high", "medium")]
+        L += ["## 12. Data profile", "",
+              f"Profiled {PROF['generated_at'][:10]} from `{PROF['source_file']}`: {ps['tables_profiled']} tables, {ps['rows']} rows"
+              + (" (**sampled**: counts are estimates and an orphan or duplicate can be missed)" if PROF.get("sampled") else " (full scan)")
+              + (f"; {ps['errors']} table(s) failed" if ps.get("errors") else "")
+              + (f"; {ps['not_profiled']} table(s) not profiled" if ps.get("not_profiled") else "") + ".", "",
+              d.md_table(["rule", "what", "findings"], [[r, RULE_TEXT.get(r, r), n] for r, n in ps["findings_by_rule"].items()]), "",
+              (d.md_table(["id", "sev", "object", "finding", "evidence", "status"],
+                          [[f["id"], f["severity"], f["object"], f["message"], f["evidence"], f.get("status", "open")] for f in hm])
+               if hm else "_No high or medium data findings._"), "",
+              f"{len(pfs) - len(hm)} low finding(s) (whitespace, empty tables, always-NULL columns) are in `profile.json` and section 8. "
+              "Settle a finding with `review.py finding <DP-id> <status>`; re-profile with `profile_data.py plan` / `ingest`.", ""]
+    else:
+        L += ["## 12. Data profile", "", "_Not profiled yet. The data itself often holds the biggest surprises: run "
+              "`profile_data.py plan`, run the SQL against legacy, then `profile_data.py ingest`._", ""]
     L += ["## Appendix", "", "- Full findings: `findings.csv` (same folder)",
-          "- Machine-readable: `.dbmod/legacy/findings.json`, `relationships.json`, `domains.json`, `glossary.json`", ""]
+          "- Machine-readable: `.dbmod/legacy/findings.json`, `profile.json`, `relationships.json`, `domains.json`, `glossary.json`", ""]
     d.write_text(rpath, "\n".join(L))
     with open(d.mem(root, "legacy", "assessment", "findings.csv"), "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["id", "severity", "rule", "category", "object", "domain", "message", "evidence", "recommendation", "status"])
-        for f in F["findings"]:
+        for f in F["findings"] + pfs:
             w.writerow([f["id"], f["severity"], f["rule"], f["category"], f["object"],
                         dom_of.get(".".join(f["object"].split(".")[:2]), ""), f["message"], f["evidence"], f["recommendation"], f["status"]])
     d.journal(root, "legacy-assessment", "report", f"report.md + findings.csv ({len(fs)} findings, {len(q_open)} open SME questions)")

@@ -79,6 +79,14 @@ def main():
         if fnd:
             sev = Counter(f["severity"] for f in fnd)
             p("findings: " + ", ".join(f"{k} {sev.get(k, 0)}" for k in ["critical", "high", "medium", "low", "info"]))
+        prof = d.load_json(d.mem(root, "legacy", "profile.json"), default={}) or None
+        if prof:
+            pl = [f for f in prof["findings"] if f.get("status") == "open"]
+            ps = Counter(f["severity"] for f in pl)
+            p(f"data profile ({prof['generated_at'][:10]}{', sampled' if prof.get('sampled') else ''}): "
+              + ", ".join(f"{k} {ps.get(k, 0)}" for k in ["high", "medium", "low"]) + " open")
+        else:
+            p("data profile: **not profiled yet** (profile_data.py)")
         if doms.get("domains"):
             p("")
             p(d.md_table(["legacy domain", "status", "tables", "shared/hub"],

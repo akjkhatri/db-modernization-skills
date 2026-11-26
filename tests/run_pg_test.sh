@@ -210,4 +210,27 @@ expect /tmp/v151-4b.log "money total +\| invoice_line\.line_amount +\| +202\.070
 expect /tmp/v151-4b.log "correcting lines +\| invoice_line\.line_amount .*0\.0100 .*\| +1 \| OK \(1 ruled by finance\) .*RR-[0-9]+ on $K5" "the correcting line is listed with its ruling" correcting
 $PSQL -d app -c "SELECT c.ruling_id, c.parent_key AS invoice_id, l.line_number, l.line_description, l.line_amount, l.created_by FROM migration_map.corrections c JOIN billing.invoice_line l ON l.invoice_line_id = c.new_id"
 echo "== v1.5.1 all checks passed"
+
+# ---------------------------------------------------------------- v1.6: data profiling of the legacy database
+LA="python3 $PKG/legacy-assessment/scripts"
+echo "== v1.6 dirty legacy data: an orphan payment, a 2019 archive with a placeholder date, an orphan and a duplicated row"
+$PSQL -d legacy -c "INSERT INTO pymt (pymt_id, inv_no, pymt_dt, amt, pymt_method) VALUES (9005, 5999, '2023-04-01 09:00', 9.99, 'CARD');
+  INSERT INTO ord_hdr_2019 (ord_no, cust_id, ord_dt, total_amt) VALUES (100, 1, '19000101', 50), (100, 1, '19000101', 50), (77, 9, '2019013', 12)"
+$LA/profile_data.py --root $W/app plan | head -1
+$PSQL -d legacy -q -f $W/app/.dbmod/legacy/profiling/profile.sql > $W/app/.dbmod/legacy/profiling/profile_result.csv
+$LA/profile_data.py --root $W/app ingest --file $W/app/.dbmod/legacy/profiling/profile_result.csv | tee /tmp/v16.log
+P=$W/app/.dbmod/legacy/profile.json
+pj(){ python3 -c "import json,sys; f=[x for x in json.load(open('$P'))['findings'] if x['rule']=='$1' and x['object']=='$2' and x['status']=='open']; print(f[0]['id'] + ' ' + f[0]['message'] + ' | ' + f[0]['evidence'] if f else 'MISSING')"; }
+for want in "LA-DAT-001 public.pymt.inv_no" "LA-DAT-001 public.ord_hdr_2019.cust_id" "LA-DAT-002 public.ord_hdr_2019" "LA-DAT-003 public.ord_hdr_2019.ord_dt" \
+            "LA-DAT-006 public.ord_hdr_2019.ord_dt" "LA-DAT-004 public.inv_hdr.currency" "LA-DAT-005 public.cust_mst.cust_nm" "LA-DAT-008 public.inv_dtl.amt"; do
+  r=$(pj $want); echo "  -> $want: $r"; [ "$r" != "MISSING" ] || { echo "FAIL: $want not found"; exit 1; }; done
+$LA/build_report.py --root $W/app >/dev/null
+grep -q "## 12. Data profile" $W/app/.dbmod/legacy/assessment/report.md && echo "  -> report has the Data profile section"
+$LA/review.py --root $W/app sme list --open | grep -E "placeholder parent|same code|rounding rule|real one" | sed 's/^/   /'
+ORPH=$(pj LA-DAT-001 public.pymt.inv_no | cut -d' ' -f1)
+$LA/review.py --root $W/app finding $ORPH accepted-risk --note "Payment to a purged invoice: archived, not migrated (ADR)" --by "Fiona Finance:data-owner"
+$LA/build_report.py --root $W/app >/dev/null
+$LA/review.py --root $W/app sme list | grep -q "resolved-by-review.*public.pymt.inv_no" && echo "  -> settling $ORPH closed its SME question" || { echo "FAIL: question not settled"; exit 1; }
+cp $W/app/.dbmod/legacy/profiling/profile_result.csv /tmp/dbmod-profile_result.csv
+echo "== v1.6 all checks passed"
 $AS "$PGBIN/pg_ctl -D $DATA stop -m fast" >/dev/null

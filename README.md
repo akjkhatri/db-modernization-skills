@@ -19,6 +19,15 @@ These skills give Claude (and the team) a **persistent memory of the modernisati
 - nothing is written to `db/migration` until the **right people approve**: an architect, plus the data owner when the model holds money or personal data
 - **coverage** (the share of legacy columns mapped or deliberately retired) shows real progress
 - migrated money is **reconciled to the penny** against the raw legacy values, row by row, and the data owner signs it off
+## What's new in v1.6
+
+The assessment now looks at the data, not just the structure. Until now it read the catalog only, so problems in the data itself showed up late, at precheck, after the target model was designed.
+
+- **`profile_data.py plan`** writes read-only profiling SQL for every legacy table (optionally sampled). You or your DBA run it; nothing touches legacy without a person, and no credentials are needed by the skill.
+- **`profile_data.py ingest`** turns the result into data findings: orphan rows, duplicate keys or rows, placeholder dates like 1900-01-01, codes that differ only by case (gbp / GBP), text dates that don't parse, mostly-empty columns, and amounts with more decimals than the currency allows.
+- Findings go into the assessment report (section 12) and become **SME questions** on their tables, so they join the business gate before any design starts. Settled findings close their questions.
+- Tested on a real PostgreSQL database: an orphan payment, a duplicated row, placeholder and unparseable text dates, `gbp`/`GBP`, and half-pence amounts are all found, and settling the orphan closes its question.
+
 ## What's new in v1.5.1
 
 Two more points from readers.
@@ -161,6 +170,7 @@ Both run in GitHub Actions on every push. All fixtures are synthetic.
 | Approvals | architect always; data owner for money and personal/financial data; security for credentials and special-category data; one person per role | standards → approvals |
 | Business gate | legacy domains confirmed and SME questions answered (or waived under an accepted ADR) before acceptance | standards → business_gate |
 | Waivers | review date on every waiver (default 90 days); overdue waivers fail validation and block acceptance | standards → business_gate.waiver_review_days |
+| Data profiling | read-only SQL the user runs; orphans, duplicates, placeholder dates, code variants, text dates, empty columns, extra decimals become findings and SME questions | standards → profiling; `profile_data.py` |
 | Reconcile | money compared to 2 dp (or per currency): raw vs converted vs target totals, per row via the id maps, per parent, month and currency, NULLs that became values, invariants across tables; data owner signs `05_signoff.md` | standards → data_migration.reconcile; mapping → reconcile_raw, reconcile_invariants |
 | Finance rulings | finance decides which value is correct per difference, for a reporting period; closed periods need a disclosure; open periods can get a traced correcting line | `reconcile_ruling.py`, standards → reconcile.ruling_roles |
 | Waiver renewals | each review is a renewal; past 2, only a data owner renews; involvement and trend in the status report | standards → business_gate.max_waiver_renewals |
@@ -171,7 +181,7 @@ Edit `.dbmod/standards.json` in your repo to change these, and record the reason
 ## Package layout
 ```
 schema-memory/          SKILL.md, scripts/ (init, status, query, record, validate), references/memory-spec.md, templates/
-legacy-assessment/      SKILL.md, scripts/ (ingest, analyze, domains, erd, report, review), references/
+legacy-assessment/      SKILL.md, scripts/ (ingest, analyze, profile_data, domains, erd, report, review), references/
 domain-modernization/   SKILL.md, scripts/ (context_tool, model_lint, lineage_check, check_conflicts,
                         generate_migration, accept_model, generate_data_migration, reconcile_ruling, render_erd),
                         references/ (+ examples/)

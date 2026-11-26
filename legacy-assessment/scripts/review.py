@@ -4,7 +4,8 @@
   rel confirm <schema.table.column> [--to schema.table]     confirm an inferred relationship
   rel reject  <schema.table.column> [--to schema.table] [--note why]
   rel add     <schema.table.column> <schema.table.column> [--note why]   manual relationship
-  finding <F-0001> <open|accepted-risk|resolved-in-target|not-applicable> [--note why]
+  finding <F-0001|DP-0001> <open|accepted-risk|resolved-in-target|not-applicable> [--note why]
+                                                            (DP- ids are data-profile findings from profile_data.py)
   domain rename <old> <new>
   domain describe <name> "<text>"
   domain move <schema.table> <domain>        (creates the domain if needed)
@@ -62,8 +63,13 @@ def rel_cmd(root, a):
 
 
 def finding_cmd(root, a):
-    p = d.mem(root, "legacy", "findings.json")
-    data = d.load_findings(root)
+    if a.id.upper().startswith("DP-"):   # data-profile finding (profile_data.py)
+        p = d.mem(root, "legacy", "profile.json")
+        data = d.load_json(p, default={"findings": []})
+        a.id = a.id.upper()
+    else:
+        p = d.mem(root, "legacy", "findings.json")
+        data = d.load_findings(root)
     for f in data["findings"]:
         if f["id"] == a.id:
             f["status"] = a.status

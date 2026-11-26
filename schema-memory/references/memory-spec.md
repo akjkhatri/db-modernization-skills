@@ -26,6 +26,8 @@ This is the contract shared by all three skills. Scripts enforce most of it, and
       glossary.json             legacy abbreviations -> expansions (suggested / confirmed / unknown)
       sme_questions.json        questions for the business, with answers and who gave them (business gate)
       sme_history.json          one dated snapshot of open/answered/waived counts per day they change (trend)
+      profile.json              data profile: per-table/column metrics + data findings DP-nnnn (profile_data.py)
+      profiling/profile.sql     generated read-only profiling SQL; profile_result.csv is what it returned
       assessment/report.md      assessment report (narrative + generated sections)
       assessment/erd/*.md       Mermaid ERDs per legacy domain
     target/contexts/<ctx>/

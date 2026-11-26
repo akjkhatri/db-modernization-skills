@@ -1,6 +1,6 @@
 ---
 name: legacy-assessment
-description: Mode 1 of legacy database modernization. Ingests a legacy PostgreSQL table catalog (an HTML catalog page by file or URL, or a CSV export, in any reasonable layout), analyses it for structural, typing, naming, integrity and GDPR/PCI problems, infers undeclared relationships, clusters tables into candidate business domains, draws ERDs, and writes an assessment report. The result is stored as the permanent legacy baseline in the project's .dbmod memory. Use it whenever the user wants to assess, analyse, audit, profile or understand a legacy or existing database schema, hands over a data dictionary or table catalog, asks what is wrong with the old schema, asks how the legacy data splits into domains or bounded contexts, or is starting a database modernization or rewrite. Also use it to re-ingest an updated catalog or to record review decisions on the assessment.
+description: Mode 1 of legacy database modernization. Ingests a legacy PostgreSQL table catalog (an HTML catalog page by file or URL, or a CSV export, in any reasonable layout), analyses it for structural, typing, naming, integrity and GDPR/PCI problems, infers undeclared relationships, profiles the actual data through read-only SQL the user runs (orphans, duplicates, placeholder dates, code variants), clusters tables into candidate business domains, draws ERDs, and writes an assessment report. The result is stored as the permanent legacy baseline in the project's .dbmod memory. Use it whenever the user wants to assess, analyse, audit, profile or understand a legacy or existing database schema, hands over a data dictionary or table catalog, asks what is wrong with the old schema, asks how the legacy data splits into domains or bounded contexts, or is starting a database modernization or rewrite. Also use it to re-ingest an updated catalog or to record review decisions on the assessment.
 ---
 
 # Legacy assessment (Mode 1)
@@ -55,6 +55,22 @@ For large schemas (hundreds of tables), work domain by domain:
 
 Read the aggregates in `findings.json`'s `summary` rather than loading every finding.
 
+### 3b. Profile the data
+The catalog only shows structure. Profiling shows what is actually in it: orphan rows behind undeclared relationships, duplicate keys or rows, placeholder dates (1900-01-01, 9999-12-31), codes that differ only by case or spaces, text dates that don't parse, mostly-empty columns, and amounts with more decimals than the currency allows.
+```bash
+python3 $LA/profile_data.py --root <repo> plan [--sample-percent 5] [--tables public.a,public.b]
+#   writes .dbmod/legacy/profiling/profile.sql: read-only SELECTs, results as CSV on stdout
+#   the user (or their DBA) runs it against legacy:
+#   psql "<legacy connection>" -q -f .dbmod/legacy/profiling/profile.sql > .dbmod/legacy/profiling/profile_result.csv
+python3 $LA/profile_data.py --root <repo> ingest --file .dbmod/legacy/profiling/profile_result.csv
+python3 $LA/build_report.py --root <repo>     # section 12 "Data profile" + SME questions from the findings
+```
+- **You never run the SQL against legacy yourself** and never ask for credentials. Give the user the command; they run it (or their DBA does) and hand back the CSV.
+- The SQL is PostgreSQL. For another database, adapt it with the user, keeping the CSV shape (`table_name,column_name,metric,value,detail`).
+- On very large tables, offer `--sample-percent`. Say clearly that sampled counts are estimates and can miss an orphan or a duplicate; profile the money and key tables in full before the data migration.
+- Data findings (`DP-0001`…, rules `LA-DAT-*`) become SME questions on their tables, so they join the business gate: a context cannot be accepted while questions on its legacy tables are open. Settle one with `review.py finding DP-0003 accepted-risk --note "..."`, or answer its SME question.
+- Use the findings when mapping in Mode 2: placeholder dates → NULL in the transform, case variants → `upper(btrim(...))`, orphans → a `filter` plus an ADR, extra decimals → the rounding rule finance agreed (`data_migration.reconcile.rounding`).
+
 ### 4. Review loop with the user
 Present the first results before you write any narrative:
 - the candidate domains (tables, hubs, retire candidates)
@@ -90,7 +106,7 @@ Write the narrative after the review, so the report reflects the agreed domains.
 - **Recommendations:** a prioritised roadmap. Name the first context to design and why. Prefer upstream master data (e.g. customer, product) before contexts that reference it, because data migration loads in dependency order. List the cross-cutting ADRs needed: time zone of legacy timestamps, money representation, key strategy, PII handling, soft delete and retention. List the data profiling to commission (use the queries in the rules reference).
 - **SME questions:** curate the generated list into a short list grouped by owner.
 
-Ground every statement in memory. Cite finding ids, table names and counts. Don't speculate about data you haven't seen. Without data profiling, quality issues are risks, not facts. If later review changes the numbers, re-run `build_report.py` and adjust the narrative.
+Ground every statement in memory. Cite finding ids, table names and counts. Don't speculate about data you haven't seen. Without data profiling (step 3b), quality issues are risks, not facts; with it, cite the `DP-` ids and counts. If later review changes the numbers, re-run `build_report.py` and adjust the narrative.
 
 ### 6. Close the session
 ```bash

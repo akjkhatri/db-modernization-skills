@@ -210,4 +210,13 @@ EOF
 python3 $DM/generate_data_migration.py $R --context billing | grep -E "^NOTE" || { echo "FAIL: no NOTE for missing reconcile section"; exit 1; }
 grep -q "'money per row'" "$BV/04_reconcile.sql" && echo "  pre-v1.3 project: defaults used, per-row checks still generated"
 cp /tmp/dbmod-standards.bak "$W/app/.dbmod/standards.json"; python3 $DM/generate_data_migration.py $R --context billing >/dev/null
+echo "== v1.6 data profiling: plan the read-only SQL, ingest a result (captured from the live PostgreSQL test)"
+python3 $LA/profile_data.py $R plan --sample-percent 10 | head -1
+grep -q "TABLESAMPLE SYSTEM (10.0)" "$W/app/.dbmod/legacy/profiling/profile.sql" && grep -q "COPY (SELECT \* FROM profile_out" "$W/app/.dbmod/legacy/profiling/profile.sql" \
+  && echo "  profile.sql: sampled, read-only, CSV to stdout"
+python3 $LA/profile_data.py $R ingest --file "$FX/profile_result.csv" | head -4
+python3 $LA/build_report.py $R >/dev/null
+grep -A2 "## 12. Data profile" "$W/app/.dbmod/legacy/assessment/report.md" | tail -1
+python3 $LA/review.py $R sme list --open | grep -c "placeholder parent\|same code\|rounding rule\|real one\|still used\|placeholder dates" | sed 's/^/  data-profile SME questions: /'
+python3 $MEM/memory_status.py $R | grep "data profile"
 echo; echo "Flyway:"; ls "$W/app/db/migration"; echo "Data migration:"; find "$W/app/db/data-migration" -type f | sort
