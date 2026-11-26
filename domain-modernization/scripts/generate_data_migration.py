@@ -7,6 +7,8 @@ Output: <repo>/<data_migration.location>/<ctx>/v<NNN>/
   01_id_maps.sql        legacy key -> new id maps (pre-allocated from identity sequences)
   02_precheck.sql       duplicate legacy keys, unresolved lookups (orphans): run, review, fix/decide
   03_load.sql           INSERT ... SELECT per table in FK order, one transaction
+  03b_corrections.sql   correcting lines finance asked for in a ruling (open periods only), recorded in
+                        migration_map.corrections; re-runnable
   04_reconcile.sql      reconcile report, one row per check with a status (OK / MISMATCH / REVIEW / EXPLAINED / NOT RUN):
                         row counts; money totals raw legacy vs converted vs target, side by side; per-row
                         money compare to the penny (legacy key -> id map -> target row); totals per parent
@@ -349,8 +351,11 @@ def main():
                  "SELECT " + ",\n       ".join(sel_exprs),
                  base_from + "".join("\n    " + x for x in lookups),
                  (where + ";") if where else ";", ""]
+        tpk = (ipk or {}).get("name") or (t.get("primary_key") or [None])[0] if len(t.get("primary_key") or []) <= 1 else None
+        tset = (f"(SELECT * FROM {target} x WHERE NOT EXISTS (SELECT 1 FROM {mapsch}.corrections cx "
+                f"WHERE cx.target_table = '{sch}.{tn}' AND cx.new_id = x.{qi(tpk)})) AS tset") if tpk else target
         REC.append(("row count", tn, f"SELECT NULL::numeric, (SELECT count(*) {base_from} {where})::numeric, "
-                    f"(SELECT count(*) FROM {target})::numeric, NULL::bigint, NULL::numeric, 0::bigint, "
+                    f"(SELECT count(*) FROM {tset})::numeric, NULL::bigint, NULL::numeric, 0::bigint, "
                     + sql_str("filters applied: " + tm["filter"] if tm.get("filter") else "") + "::text", None))
         src_from = base_from + "".join(" " + x for x in lookups)
         fk_by_col = {fk["columns"][0]: fk for fk in t.get("foreign_keys", []) if len(fk["columns"]) == 1}
@@ -383,7 +388,7 @@ def main():
                     "raw legacy value" if raw else "converted value")
             REC.append(("money total", lbl,
                         f"SELECT {'(SELECT sum((' + raw + ')::numeric) ' + base_from + ' ' + where + ')' if raw else 'NULL::numeric'}, "
-                        f"(SELECT sum(({conv})::numeric) {base_from} {where}), (SELECT sum({qc}) FROM {target}), NULL::bigint, NULL::numeric, 0::bigint, "
+                        f"(SELECT sum(({conv})::numeric) {base_from} {where}), (SELECT sum({qc}) FROM {tset}), NULL::bigint, NULL::numeric, 0::bigint, "
                         f"{sql_str((what + ' vs converted vs target') if raw else why_no_raw) + (' || ' + sql_str('; across currencies, see money per currency') if cur_col else '')}::text", None))
             cmp_src = raw or conv
             sc_row = scale_of(f"tgt.{qi(cur_col['name'])}") if cur_col else str(S)
@@ -425,23 +430,25 @@ def main():
                         continue
                     pmap = map_table(fcm["lookup"].lower())
                     REC.append(("money per parent", lbl, self_grouped(
-                        f"{sel_exprs[sel_cols.index(qi(col))]}", qi(col), cmp_src, qc, src_from, where, target, S, NEX,
+                        f"{sel_exprs[sel_cols.index(qi(col))]}", qi(col), cmp_src, qc, src_from, where, tset, S, NEX,
                         f"per {col} ({fcm['lookup'].lower()}), {what}", f"(SELECT legacy_key FROM {pmap} WHERE new_id = g)"), None))
             if rcfg["per_month"] and month_col:
                 mexpr = sel_exprs[sel_cols.index(qi(month_col["name"]))]
                 REC.append(("money per month", lbl, self_grouped(
                     f"date_trunc('month', {mexpr})::date", f"date_trunc('month', {qi(month_col['name'])})::date", cmp_src, qc,
-                    src_from, where, target, S, NEX, f"per month of {month_col['name']} ({rcfg['time_zone']}), {what}", "to_char(g, 'YYYY-MM')"), None))
+                    src_from, where, tset, S, NEX, f"per month of {month_col['name']} ({rcfg['time_zone']}), {what}", "to_char(g, 'YYYY-MM')"), None))
             if rcfg["per_currency"] and cur_col:
                 cexpr = sel_exprs[sel_cols.index(qi(cur_col["name"]))]
                 REC.append(("money per currency", lbl, self_grouped(
                     f"upper(trim(({cexpr})::text))", f"upper(trim({qi(cur_col['name'])}::text))", cmp_src, qc,
-                    src_from, where, target, S, NEX, f"per {cur_col['name']} at its own decimal places, {what}",
+                    src_from, where, tset, S, NEX, f"per {cur_col['name']} at its own decimal places, {what}",
                     "coalesce(g, '(none)')", scale_fn=scale_of), None))
 
     # ---- invariants across tables (mapping "reconcile_invariants"): totals that must agree inside the TARGET
+    CORR, CORR_TABLES = [], set()
     for inv in mp.get("reconcile_invariants", []):
         name = inv.get("name") or inv.get("kind")
+        ct = cc = None
         if inv.get("kind") == "sum_of_children":
             pt, pc = inv["parent"].split(".")
             ct, cc = inv["child"].split(".")
@@ -455,6 +462,37 @@ def main():
             d.die(f"reconcile_invariants: unknown kind {inv.get('kind')!r} (sum_of_children or sql)")
         acc, fix, blanket, ids = ruled(name, "invariant")
         okk = "TRUE" if blanket else f"k = ANY({keys_sql(acc)})"
+        corr = [r for r in RUL if r["target"] == name and r["check"] == "invariant" and r.get("correction") == "line"]
+        if corr and inv.get("kind") != "sum_of_children":
+            d.die(f"ruling(s) {', '.join(r['id'] for r in corr)} ask for a correcting line, but invariant {name!r} is not sum_of_children")
+        for r in corr:
+            ctab = tables[ct]
+            cpk = next((c["name"] for c in ctab["columns"] if c.get("identity")), None)
+            fkt = next(c["type"] for c in ctab["columns"] if c["name"] == inv["fk"])
+            extra = {k: v.replace("{ruling}", r["id"]) for k, v in (inv.get("correction_columns") or {}).items()}
+            for c in ctab["columns"]:
+                if c["name"] in audit and c["name"].endswith("_by"):
+                    extra.setdefault(c["name"], "'legacy-migration-correction'")
+            missing = [c["name"] for c in ctab["columns"] if not c.get("nullable") and not c.get("identity")
+                       and c.get("default") is None and c["name"] not in extra and c["name"] not in (inv["fk"], cc)
+                       and not (c["name"] in audit and audit[c["name"]].get("default"))]
+            if missing:
+                d.die(f"invariant {name!r}: a correcting line in {ct} needs values for {', '.join(missing)}: "
+                      "add them to the invariant's correction_columns (SQL; d.k is the parent key, {ruling} the ruling id)")
+            if not cpk:
+                d.die(f"invariant {name!r}: {ct} has no identity key, so a correcting line cannot be traced")
+            cols = [qi(inv["fk"]), qi(cc)] + [qi(k) for k in extra]
+            vals = [f"d.k::{fkt}", "d.diff"] + list(extra.values())
+            CORR.append(f"-- {r['id']}: {r['note']} (period {r['period']}, {r['by']}, {r['adr']})\n"
+                        f"WITH d AS (SELECT a.k, coalesce(a.v, 0) - coalesce(b.v, 0) AS diff FROM ({left}) AS a(k, v) "
+                        f"LEFT JOIN ({right}) AS b(k, v) USING (k) WHERE a.k = ANY({keys_sql([k for k in r['keys'] if k != '*'])})),\n"
+                        f"ins AS (INSERT INTO {qi(sch)}.{qi(ct)} ({', '.join(cols)})\n"
+                        f"  SELECT {', '.join(vals)} FROM d WHERE d.diff <> 0 AND NOT EXISTS (SELECT 1 FROM {mapsch}.corrections c "
+                        f"WHERE c.ruling_id = '{r['id']}' AND c.target_table = '{sch}.{ct}' AND c.parent_key = d.k)\n"
+                        f"  RETURNING {qi(cpk)} AS new_id, {qi(inv['fk'])}::text AS parent_key, {qi(cc)} AS amount)\n"
+                        f"INSERT INTO {mapsch}.corrections (ruling_id, target_table, parent_key, new_id, column_name, amount)\n"
+                        f"SELECT '{r['id']}', '{sch}.{ct}', parent_key, new_id, '{cc}', amount FROM ins;\n")
+            CORR_TABLES.add((ct, cc))
         sc = str(inv.get("scale", S))
         REC.append(("invariant", name,
                     f"SELECT NULL::numeric, NULL::numeric, NULL::numeric, count(*) FILTER (WHERE bad AND NOT ({okk})), "
@@ -471,6 +509,10 @@ def main():
     out = os.path.join(root, std["data_migration"]["location"], ctx, f"v{ver:03d}")
     hdr = f"-- data migration · context {ctx} · model v{ver} ({m['status']}) · generated {d.now_iso()} from .dbmod lineage\n"
     d.write_text(os.path.join(out, "00_prerequisites.sql"), hdr + "\n".join(P) + "\n")
+    IDM.insert(0, f"-- rows added after the load by 03b_corrections.sql (finance rulings), kept out of the legacy-vs-target counts\n"
+                  f"CREATE TABLE IF NOT EXISTS {mapsch}.corrections (ruling_id text NOT NULL, target_table text NOT NULL, parent_key text NOT NULL,\n"
+                  f"  new_id bigint, column_name text, amount numeric, created_at timestamptz NOT NULL DEFAULT now(),\n"
+                  f"  PRIMARY KEY (ruling_id, target_table, parent_key));\n")
     d.write_text(os.path.join(out, "01_id_maps.sql"), hdr + "BEGIN;\n" + "\n".join(IDM) + "COMMIT;\n")
     blocks = []
     for i, (lbl, q) in enumerate(PRE, 1):
@@ -488,6 +530,17 @@ END $chk$;""")
                  "CREATE TEMP TABLE IF NOT EXISTS precheck_issues (seq int, issue text, detail text, n bigint);\nTRUNCATE precheck_issues;\n\n"
                  + "\n".join(blocks) + "\n\nSELECT issue, detail, n FROM precheck_issues ORDER BY seq, n DESC NULLS FIRST;\n")
     d.write_text(os.path.join(out, "03_load.sql"), hdr + "BEGIN;\nSET LOCAL statement_timeout = 0;\n\n" + "\n".join(LOAD) + "COMMIT;\n")
+    for ct, cc in sorted(CORR_TABLES):
+        REC.append(("correcting lines", f"{ct}.{cc}",
+                    f"SELECT NULL::numeric, NULL::numeric, (SELECT sum(amount) FROM {mapsch}.corrections WHERE target_table = '{sch}.{ct}'), "
+                    f"0::bigint, NULL::numeric, (SELECT count(*) FROM {mapsch}.corrections WHERE target_table = '{sch}.{ct}'), "
+                    f"concat_ws('', 'rows added by 03b_corrections.sql from finance rulings, left out of the legacy-vs-target checks', "
+                    f"'; ' || (SELECT string_agg(DISTINCT ruling_id || ' on ' || parent_key, ', ') FROM {mapsch}.corrections WHERE target_table = '{sch}.{ct}'))", None))
+    d.write_text(os.path.join(out, "03b_corrections.sql"), hdr + (
+        "-- Correcting lines that finance asked for in a ruling (reconcile_ruling.py --correct-with-line), open periods only.\n"
+        "-- Run after 03_load.sql and before 04_reconcile.sql. Safe to re-run: a correction already made is not repeated.\n"
+        f"-- Each line is recorded in {mapsch}.corrections with its ruling, so the audit trail shows why it exists.\n"
+        "BEGIN;\n" + "\n".join(CORR) + "COMMIT;\n" if CORR else "-- no correcting lines requested by finance rulings\n"))
     rblocks = []
     for i, (kind, lbl, q, fixed) in enumerate(REC, 1):
         ins = f"INSERT INTO reconcile_results (seq, check_type, target, source_raw, source_converted, target_value, diff_rows, max_abs_diff, ruled_rows, note"
@@ -554,6 +607,7 @@ FROM reconcile_results ORDER BY seq;
                *(["| Ruling | Check | Target | Keys | Decision | Period | Decided by | ADR |", "|---|---|---|---|---|---|---|---|"]
                  + [f"| {r['id']} | {r['check']} | {r['target']} | {', '.join(r['keys'])} | {r['decision']}"
                     + (f" (disclosed: {r['disclosure']})" if r.get("disclosure") else "")
+                    + (" + correcting line" if r.get("correction") == "line" else "")
                     + f" | {r['period']} ({r['period_status']}) | {r['by']} | {r['adr']} |" for r in RUL] if RUL else ["_None yet._"]), "",
                "## Parallel run (if done)", "", "Period, scope and result of comparing legacy and new outputs side by side (see migration-guide.md).", "",
                "## Decision", "", "- [ ] Reconcile accepted. Data owner: <Name>, date: <date>",
@@ -566,6 +620,7 @@ FROM reconcile_results ORDER BY seq;
               "2. `01_id_maps.sql`: pre-allocates new ids for every legacy key",
               "3. `02_precheck.sql`: must return no rows (it evaluates the exact load projection). Resolve every row first",
               "4. `03_load.sql`: one transaction, tables in foreign-key order",
+              "   `03b_corrections.sql`: correcting lines from finance rulings, if any (traced in migration_map.corrections)",
               "5. `04_reconcile.sql`: reconcile report, every row must be `OK`: row counts; money totals raw legacy vs converted vs target;"
               f" every money value per row to {S} dp; totals per parent and per month. Explain or fix anything else",
               "6. `05_signoff.md`: the data owner reviews the reconcile output and signs it off before go-live", "",

@@ -117,6 +117,8 @@ Path: `.dbmod/target/contexts/<ctx>/model.json`. Create it with `context_tool.py
   ]
   ```
   Each `sql` side returns `(key, value)`; keys on one side only count as differences. Optional `"scale"` (decimal places).
+  A `sum_of_children` invariant can carry `"correction_columns"` for correcting lines (v1.5.1): SQL for the child's required columns, where `d.k` is the parent key and `{ruling}` the ruling id, e.g. `{"line_number": "(SELECT coalesce(max(l.line_number), 0) + 1 FROM billing.invoice_line l WHERE l.invoice_id = d.k::bigint)", "line_description": "'Migration correction ({ruling})'"}`. Audit `*_by` columns are filled automatically.
+- **Signs and refunds:** when legacy stores refunds or credits as positive amounts with a type flag and the new model signs them, put the sign rule in the transform and declare it in `reconcile_raw` too (e.g. `"CASE WHEN upper(pymt.pymt_method) = 'REF' THEN -(pymt.amt::numeric) ELSE pymt.amt::numeric END"`). Then a transform that forgets the sign is caught per row, and without the declaration the sign change shows as a mismatch instead of being hidden.
 - `"money": true|false` on a model column overrides money detection by name (names like amount, principal, interest, premium, limit, fee, balance are detected).
 
 **Repeating groups / unpivots** (in the customer context's own mapping): `custom_select` replaces the generated SELECT and must return `custom_columns` in order:

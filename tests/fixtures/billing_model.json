@@ -315,6 +315,11 @@
      "code": "other",
      "label": "Other / unknown legacy",
      "is_active": false
+    },
+    {
+     "code": "refund",
+     "label": "Refund",
+     "is_active": true
     }
    ]
   },
@@ -352,7 +357,7 @@
      "type": "numeric(19,4)",
      "nullable": false,
      "pii": "none",
-     "description": "amount received"
+     "description": "amount received or refunded; signed: a refund is negative"
     },
     {
      "name": "payment_method_code",
@@ -413,8 +418,8 @@
    "unique": [],
    "checks": [
     {
-     "name": "amount_positive",
-     "expression": "amount > 0"
+     "name": "amount_not_zero",
+     "expression": "amount <> 0"
     }
    ],
    "foreign_keys": [

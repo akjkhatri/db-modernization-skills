@@ -44,6 +44,7 @@ INSERT INTO inv_dtl (inv_no, line_no, ord_no, description, amt) VALUES
 INSERT INTO pymt (pymt_id, inv_no, pymt_dt, amt, pymt_method, card_no) VALUES
  (9001, 5001, '2023-01-20 09:30', 120.00, 'CARD', '4111111111111111'),
  (9002, 5002, '2023-02-10 12:00', 30.00, 'bacs', NULL),
- (9003, NULL, '2023-02-11 12:00', 5.00, 'CHQ', NULL);
+ (9003, NULL, '2023-02-11 12:00', 5.00, 'CHQ', NULL),
+ (9004, 5001, '2023-03-01 10:00', 20.00, 'REF', NULL);   -- a refund, stored positive with a type flag
 """)
 print("\n".join(out))

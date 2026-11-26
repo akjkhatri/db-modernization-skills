@@ -10,6 +10,12 @@ ruling is built into 04_reconcile.sql the next time the data migration is genera
                   --disclosure is required (where the difference is disclosed / corrected instead).
   legacy-correct  the migrated value is wrong: fix the mapping. The check stays MISMATCH until it is fixed.
 
+  --correct-with-line  (invariant of kind sum_of_children, new-correct, OPEN period only) finance says the parent
+                  (e.g. the invoice header) is right: 03b_corrections.sql adds a correcting child line for the
+                  difference, tagged with the ruling and recorded in migration_map.corrections, so the new system's
+                  invariant holds. A closed period is never corrected in place: disclose it, and post any
+                  correction in the current period in the ledger.
+
 Usage:
   reconcile_ruling.py add --context billing --check "money per row" --target invoice_line.line_amount \\
       --key "5002|1" [--key ...|--key "*"] --decision new-correct|legacy-correct \\
@@ -53,6 +59,8 @@ def main():
     a_.add_argument("--adr", required=True)
     a_.add_argument("--by", required=True, help='"Name:role"')
     a_.add_argument("--note", required=True)
+    a_.add_argument("--correct-with-line", action="store_true", dest="correct_line",
+                    help="add a correcting child line for the difference (sum_of_children invariant, open period)")
     ls = sub.add_parser("list")
     ls.add_argument("--context")
     a = ap.parse_args()
@@ -79,6 +87,18 @@ def main():
     if a.decision == "new-correct" and a.period_status == "closed" and not a.disclosure:
         d.die("the period is closed: its reported figures are not restated. Give --disclosure with where the "
               "difference is disclosed or corrected (e.g. 'prior-period adjustment in 2026-01')")
+    if a.correct_line:
+        if a.check != "invariant" or a.decision != "new-correct":
+            d.die("--correct-with-line is for an invariant where finance rules the parent is right (--check invariant --decision new-correct)")
+        if a.period_status == "closed":
+            d.die("the period is closed: it is not corrected in place. Disclose the difference (--disclosure) and post any "
+                  "correction in the current period in the ledger")
+        if "*" in a.keys:
+            d.die("--correct-with-line needs the specific keys to correct, not \"*\"")
+        inv = next((i for i in d.load_json(d.mem(root, "mapping", f"{a.context}.json"), default={}).get("reconcile_invariants", [])
+                    if (i.get("name") or i.get("kind")) == a.target), None)
+        if not inv or inv.get("kind") != "sum_of_children":
+            d.die(f"no sum_of_children invariant named {a.target!r} in mapping/{a.context}.json: a correcting line needs a parent and child")
     aidx = d.load_json(d.mem(root, "decisions", "index.json"), default={"items": []})
     adr = next((it for it in aidx["items"] if it["id"] == a.adr.upper()), None)
     if adr is None:
@@ -89,9 +109,9 @@ def main():
     data["rulings"].append({"id": rid, "context": a.context, "check": a.check, "target": a.target, "keys": a.keys,
                             "decision": a.decision, "period": a.period, "period_status": a.period_status,
                             "disclosure": a.disclosure, "adr": adr["id"], "by": f"{name} ({role})", "role": role,
-                            "at": d.now_iso(), "note": a.note})
+                            "at": d.now_iso(), "note": a.note, **({"correction": "line"} if a.correct_line else {})})
     d.save_json(path(root), data)
-    msg = (f"{rid}: {a.decision} for {a.check} {a.target} [{', '.join(a.keys)}], period {a.period} ({a.period_status}), "
+    msg = (f"{rid}: {a.decision}{' + correcting line' if a.correct_line else ''} for {a.check} {a.target} [{', '.join(a.keys)}], period {a.period} ({a.period_status}), "
            f"by {name}, {adr['id']}")
     d.journal(root, "domain-modernization", "reconcile-ruling", msg, by=a.by)
     print(msg)

@@ -24,6 +24,7 @@ run_ctx(){ local dir="$1"; echo "== data migration $(basename $(dirname $dir))/$
   $PSQL -d app -f "$dir/01_id_maps.sql" >/dev/null
   echo "-- precheck (rows = issues):"; $PSQL -d app -f "$dir/02_precheck.sql"
   if $PSQL -d app -f "$dir/03_load.sql" >/tmp/dbmod-load.log 2>&1; then echo "-- load OK"; else echo "-- load FAILED:"; cat /tmp/dbmod-load.log; fi
+  [ -f "$dir/03b_corrections.sql" ] && $PSQL -d app -f "$dir/03b_corrections.sql" >/dev/null
   echo "-- reconcile:"; $PSQL -d app -f "$dir/04_reconcile.sql"; }
 run_ctx "$W/app/db/data-migration/customer/v001"
 LATEST=$(ls -d $W/app/db/data-migration/billing/v* | sort | tail -1)
@@ -148,4 +149,65 @@ $PSQL -d app -At -c "SELECT 'half-even: 2.345->' || migration_map.round_money(2.
 expect /tmp/v15-5.log "half-even: 2\.345->2\.34 .*2\.355->2\.36 .*-2\.345->-2\.34 .*half-up \(round\): 2\.345->2\.35" "banker's rounding available for transforms and used by reconcile" x
 grep -m1 "SET TIME ZONE" "$LATEST/04_reconcile.sql" | sed 's/^/   04_reconcile.sql: /'
 echo "== v1.5 all checks passed"
+
+# ---------------------------------------------------------------- v1.5.1: refunds, negative amounts, correcting lines
+setmap(){ python3 - "$MAP" "$1" <<'EOF'
+import json,sys; p, code = sys.argv[1:]; m=json.load(open(p)); exec(code); json.dump(m,open(p,"w"),indent=1)
+EOF
+}
+col(){ echo "c = next(x for x in m['column_mappings'] if x['target'] == '$1')"; }
+echo "== v1.5.1 reset: legacy line amounts back in pounds, lines rounded with finance's rule (half-even)"
+$PSQL -d legacy -c "UPDATE inv_dtl SET amt = amt / 100; UPDATE inv_dtl SET amt = 67.08 WHERE inv_no = 5002 AND line_no = 1"
+setmap "$(col billing.invoice_line.line_amount); c.update(rule='transform', transform='migration_map.round_money(inv_dtl.amt, 2)'); c.pop('reconcile_raw', None)"
+reload_billing /tmp/v151-0.log
+expect /tmp/v151-0.log "money total +\| payment\.amount +\| +130\.00 +\| +130\.00 .*\| OK" "refund (stored +20 with type REF) loads as -20: expected 130.00 = converted = target" payment
+expect /tmp/v151-0.log "money per row +\| payment\.amount .*\| +0 \| +\| +0 \| OK" "every payment, refund included, matches per row" payment
+
+echo "== v1.5.1 (1) sign bug: the transform forgets to negate refunds; the declared sign rule catches it"
+PAYOK="$(col billing.payment.amount); c['transform'] = \"CASE WHEN upper(pymt.pymt_method) = 'REF' THEN -(pymt.amt::numeric) ELSE pymt.amt::numeric END\"; c['reconcile_raw'] = c['transform']"
+setmap "$(col billing.payment.amount); c['transform'] = 'pymt.amt::numeric'"
+reload_billing /tmp/v151-1.log
+expect /tmp/v151-1.log "money per row +\| payment\.amount .*\| +1 \| +40\.00 \| +0 \| MISMATCH .*9004" "refund 9004 flagged: +20 loaded, -20 expected" payment
+echo "== v1.5.1 (2) correct transform, but no sign rule declared: the sign change shows, it is not hidden"
+setmap "$PAYOK; c.pop('reconcile_raw')"
+reload_billing /tmp/v151-2.log
+expect /tmp/v151-2.log "money total +\| payment\.amount +\| +170\.00 +\| +130\.00 .*MISMATCH \(conversion changes the total\)" "raw 170.00 vs 130.00: declare the sign rule (reconcile_raw) or fix it" payment
+setmap "$PAYOK"
+
+echo "== v1.5.1 (3) half-pence lines, one negative: 12.345 and -2.345 on invoice 5004 (net 10.00)"
+echo "   (legacy line amounts widened to 3 dp, as line-level amounts often are)"
+$PSQL -d legacy -c "ALTER TABLE inv_dtl ALTER COLUMN amt TYPE numeric(12,3)" && $PSQL -d app -c "ALTER FOREIGN TABLE legacy_src.inv_dtl ALTER COLUMN amt TYPE numeric(12,3)"
+$PSQL -d legacy -c "INSERT INTO inv_hdr (inv_no, ord_no, cust_id, inv_dt, due_dt, inv_amt, vat_amt, paid_flg, fax_no, currency) VALUES (5004, NULL, 1, '2023-03-03', NULL, 10.00, 0, 'N', NULL, 'GBP');
+  INSERT INTO inv_dtl (inv_no, line_no, ord_no, description, amt) VALUES (5004, 1, NULL, 'Service', 12.345), (5004, 2, NULL, 'Overcharge refunded', -2.345)"
+echo "   transform uses PostgreSQL round() (halves away from zero: 12.35, -2.35); finance's rule is half-even (12.34, -2.34)"
+setmap "$(col billing.invoice_line.line_amount); c['transform'] = 'round(inv_dtl.amt, 2)'"
+reload_billing /tmp/v151-3.log
+expect /tmp/v151-3.log "money total +\| invoice_line\.line_amount +\| +177\.080? .*\| OK" "the total still matches (177.08): the drift cancels out" line_amount
+expect /tmp/v151-3.log "money per parent +\| invoice_line\.line_amount .*\| +0 \| .*\| OK" "so does the invoice total (10.00)" line_amount
+expect /tmp/v151-3.log "money per row +\| invoice_line\.line_amount .*\| +2 \| +0\.01 \| +0 \| MISMATCH .*5004\|1, 5004\|2" "only the per-row check catches both lines, the negative one included" line_amount
+setmap "$(col billing.invoice_line.line_amount); c['transform'] = 'migration_map.round_money(inv_dtl.amt, 2)'"
+reload_billing /tmp/v151-3b.log
+expect /tmp/v151-3b.log "money per row +\| invoice_line\.line_amount .*\| +0 \| +\| +0 \| OK" "with finance's rounding: OK" line_amount
+
+echo "== v1.5.1 (4) correcting line: invoice 5005 (Nov 2026, open period) header 25.00, its line 24.99; finance: the header is right"
+$PSQL -d legacy -c "INSERT INTO inv_hdr (inv_no, ord_no, cust_id, inv_dt, due_dt, inv_amt, vat_amt, paid_flg, fax_no, currency) VALUES (5005, NULL, 1, '2026-11-10', NULL, 25.00, 5.00, 'N', NULL, 'GBP');
+  INSERT INTO inv_dtl (inv_no, line_no, ord_no, description, amt) VALUES (5005, 1, NULL, 'Consulting', 24.99)"
+setmap "i = m['reconcile_invariants'][0]; i['correction_columns'] = {'line_number': '(SELECT coalesce(max(l.line_number), 0) + 1 FROM billing.invoice_line l WHERE l.invoice_id = d.k::bigint)', 'line_description': \"'Migration correction ({ruling})'\"}"
+reload_billing /tmp/v151-4a.log
+expect /tmp/v151-4a.log "invariant +\| invoice net = sum of lines .*\| +1 \| +0\.01 \| +0 \| MISMATCH" "invariant fails on 5005 by 0.01" invariant
+K5=$($PSQL -d app -At -c "SELECT new_id FROM migration_map.billing__invoice WHERE legacy_key = '5005'")
+echo "   refused: a correcting line in a closed period"
+refused $RUL add --context billing --check invariant --target "invoice net = sum of lines" --key "$K5" --decision new-correct --correct-with-line \
+  --period FY2025 --period-status closed --disclosure "x" --adr $ADR --by "Fiona Finance:data-owner" --note "Header is what was billed"
+$RUL add --context billing --check invariant --target "invoice net = sum of lines" --key "$K5" --decision new-correct --correct-with-line \
+  --period 2026-11 --period-status open --adr $ADR --by "Fiona Finance:data-owner" --note "Header is what the customer was billed and paid"
+$GEN billing >/dev/null
+$PSQL -d app -f "$LATEST/03b_corrections.sql" >/dev/null; $PSQL -d app -f "$LATEST/03b_corrections.sql" >/dev/null   # twice: must not duplicate
+$PSQL -d app -f "$LATEST/04_reconcile.sql" > /tmp/v151-4b.log
+expect /tmp/v151-4b.log "invariant +\| invoice net = sum of lines .*\| +0 \| +\| +0 \| OK " "invariant now plainly OK: the new system's rule holds" invariant
+expect /tmp/v151-4b.log "row count +\| invoice_line .*\| OK" "row count still legacy vs target (the correcting line is left out)" "row count"
+expect /tmp/v151-4b.log "money total +\| invoice_line\.line_amount +\| +202\.070? .*\| OK" "line totals still compare with legacy (202.07)" line_amount
+expect /tmp/v151-4b.log "correcting lines +\| invoice_line\.line_amount .*0\.0100 .*\| +1 \| OK \(1 ruled by finance\) .*RR-[0-9]+ on $K5" "the correcting line is listed with its ruling" correcting
+$PSQL -d app -c "SELECT c.ruling_id, c.parent_key AS invoice_id, l.line_number, l.line_description, l.line_amount, l.created_by FROM migration_map.corrections c JOIN billing.invoice_line l ON l.invoice_line_id = c.new_id"
+echo "== v1.5.1 all checks passed"
 $AS "$PGBIN/pg_ctl -D $DATA stop -m fast" >/dev/null

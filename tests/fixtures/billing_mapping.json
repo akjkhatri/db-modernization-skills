@@ -173,7 +173,9 @@
     "public.pymt.amt"
    ],
    "rule": "transform",
-   "transform": "pymt.amt::numeric"
+   "transform": "CASE WHEN upper(pymt.pymt_method) = 'REF' THEN -(pymt.amt::numeric) ELSE pymt.amt::numeric END",
+   "reconcile_raw": "CASE WHEN upper(pymt.pymt_method) = 'REF' THEN -(pymt.amt::numeric) ELSE pymt.amt::numeric END",
+   "notes": "legacy stores refunds as positive amounts with method REF; the new model signs them (refund = negative). Agreed with finance"
   },
   {
    "target": "billing.payment.payment_method_code",
@@ -181,7 +183,7 @@
     "public.pymt.pymt_method"
    ],
    "rule": "transform",
-   "transform": "CASE upper(pymt.pymt_method) WHEN 'CHQ' THEN 'cheque' WHEN 'CARD' THEN 'card' WHEN 'BACS' THEN 'bank_transfer' ELSE 'other' END"
+   "transform": "CASE upper(pymt.pymt_method) WHEN 'CHQ' THEN 'cheque' WHEN 'CARD' THEN 'card' WHEN 'BACS' THEN 'bank_transfer' WHEN 'REF' THEN 'refund' ELSE 'other' END"
   },
   {
    "target": "billing.payment.provider_token",

@@ -19,6 +19,13 @@ These skills give Claude (and the team) a **persistent memory of the modernisati
 - nothing is written to `db/migration` until the **right people approve**: an architect, plus the data owner when the model holds money or personal data
 - **coverage** (the share of legacy columns mapped or deliberately retired) shows real progress
 - migrated money is **reconciled to the penny** against the raw legacy values, row by row, and the data owner signs it off
+## What's new in v1.5.1
+
+Two more points from readers.
+
+- **Refunds and negative amounts.** The test data now has a refund stored the legacy way (positive, with a type flag) and half-pence lines, one of them negative. The tests show that a transform which forgets the sign is caught on the refund row, and that PostgreSQL's `round()` (12.35, -2.35 against finance's half-even 12.34, -2.34) keeps both the line total and the invoice total matching, so only the row-by-row check catches it.
+- **Correcting lines.** When finance rules that the invoice header is right and its lines don't add up, `reconcile_ruling.py --correct-with-line` adds a correcting line after the load, tagged with the ruling and recorded in `migration_map.corrections`, so the new system's invoice = sum of lines rule holds. Open periods only: a closed period is disclosed, never corrected in place.
+
 ## What's new in v1.5
 
 Money that matches isn't always right, and a difference isn't always the migration's fault. Two readers' comments shaped this release: totals can hide errors that cancel out, and sometimes the legacy number was the wrong one all along.
@@ -155,7 +162,7 @@ Both run in GitHub Actions on every push. All fixtures are synthetic.
 | Business gate | legacy domains confirmed and SME questions answered (or waived under an accepted ADR) before acceptance | standards → business_gate |
 | Waivers | review date on every waiver (default 90 days); overdue waivers fail validation and block acceptance | standards → business_gate.waiver_review_days |
 | Reconcile | money compared to 2 dp (or per currency): raw vs converted vs target totals, per row via the id maps, per parent, month and currency, NULLs that became values, invariants across tables; data owner signs `05_signoff.md` | standards → data_migration.reconcile; mapping → reconcile_raw, reconcile_invariants |
-| Finance rulings | finance decides which value is correct per difference, for a reporting period; closed periods need a disclosure | `reconcile_ruling.py`, standards → reconcile.ruling_roles |
+| Finance rulings | finance decides which value is correct per difference, for a reporting period; closed periods need a disclosure; open periods can get a traced correcting line | `reconcile_ruling.py`, standards → reconcile.ruling_roles |
 | Waiver renewals | each review is a renewal; past 2, only a data owner renews; involvement and trend in the status report | standards → business_gate.max_waiver_renewals |
 | Data migration | one-off ETL via postgres_fdw, id-map tables kept as audit trail | standards → data_migration |
 
